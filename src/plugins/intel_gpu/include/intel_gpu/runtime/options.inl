@@ -17,6 +17,9 @@
 //      Same as OV_CONFIG_DEBUG_OPTION, but applied globally to all models.
 
 // Namespace, property name, default value, [validator], description
+//gptin
+OV_CONFIG_RELEASE_OPTION(ov::intel_gpu, enable_gtpin, false, "Enable GTPin profiling")
+//
 OV_CONFIG_RELEASE_OPTION(ov, enable_profiling, false, "Enable profiling for the plugin")
 OV_CONFIG_RELEASE_OPTION(ov::device, id, "0", "ID of the current device")
 OV_CONFIG_RELEASE_OPTION(ov, cache_dir, "", "Directory where model cache can be stored. Caching is disabled if empty")

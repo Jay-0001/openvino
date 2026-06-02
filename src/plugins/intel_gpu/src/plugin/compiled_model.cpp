@@ -69,6 +69,17 @@ CompiledModel::CompiledModel(std::shared_ptr<ov::Model> model,
         auto graph = n == 0 ? graph_base : std::make_shared<Graph>(graph_base, n);
         m_graphs.push_back(graph);
     }
+    
+    try{
+    //diagnostic to check if flag has propagated from teh plugin
+    std::cout << "[CompiledModel] ExecutionConfig get_property(enable_gtpin) = "
+          << m_config.get_property(ov::intel_gpu::enable_gtpin.name(), OptionVisibility::RELEASE).as<bool>()
+          << std::endl;
+    //
+    } catch(const std::exception& e) {
+    std::cout << "[CompiledModel] enable_gtpin get_property failed: "
+              << e.what() << std::endl;
+    }
 }
 
 CompiledModel::CompiledModel(cldnn::BinaryInputBuffer& ib,

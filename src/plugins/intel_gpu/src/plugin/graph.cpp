@@ -84,6 +84,7 @@ Graph::Graph(std::shared_ptr<ov::Model> model, const RemoteContextImpl::Ptr& con
     , m_config(config)
     , m_stream_id(stream_id) {
     auto program_builder = std::make_shared<ProgramBuilder>(model, get_engine(), config);
+    //config flows into the graph
     m_config = program_builder->get_config();
 
     build(program_builder->get_compiled_program());
@@ -813,7 +814,7 @@ std::vector<ov::ProfilingInfo> Graph::get_profiling_info() const {
                 continue;
 
             cldnn::instrumentation::profiling_info cldnnInfo{primId, event->get_profiling_info()};
-
+ 
             // Collect timings
             long long cpuTime = 0;
             long long deviceTime = 0;

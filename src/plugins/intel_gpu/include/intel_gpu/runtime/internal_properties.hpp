@@ -123,6 +123,10 @@ static constexpr Property<std::shared_ptr<GpuWeightlessCacheMap>, PropertyMutabi
  */
 static constexpr Property<QueueTypes, PropertyMutability::RW> queue_type{"GPU_QUEUE_TYPE"};
 
+//Flag propagation for easier build
+static constexpr Property<bool, PropertyMutability::RW> enable_gtpin{"GPU_ENABLE_GTPIN"};
+//PoC prototype
+
 static constexpr Property<bool, PropertyMutability::RW> enable_memory_pool{"GPU_ENABLE_MEMORY_POOL"};
 static constexpr Property<bool, PropertyMutability::RW> optimize_data{"GPU_OPTIMIZE_DATA"};
 static constexpr Property<bool, PropertyMutability::RW> allow_static_input_reorder{"GPU_ALLOW_STATIC_INPUT_REORDER"};

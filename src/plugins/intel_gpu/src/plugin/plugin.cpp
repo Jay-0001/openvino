@@ -47,6 +47,8 @@
 #include "transformations/rt_info/fused_names_attribute.hpp"
 #include "transformations/utils/utils.hpp"
 
+
+
 // Undef DEVICE_TYPE macro which can be defined somewhere in windows headers as DWORD and conflict with our metric
 #ifdef DEVICE_TYPE
 #undef DEVICE_TYPE
@@ -260,6 +262,7 @@ Plugin::Plugin() {
 }
 
 std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<const ov::Model>& model, const ov::AnyMap& orig_config) const {
+    //Mapped to the itt.hpp file
     OV_ITT_SCOPED_TASK(itt::domains::intel_gpu_plugin, "Plugin::compile_model");
     std::string device_id = get_device_id(orig_config);
     auto context = get_default_context(device_id);
@@ -270,11 +273,48 @@ std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<
     ExecutionConfig config = m_configs_map.at(device_id);
     config.set_user_property(orig_config, OptionVisibility::RELEASE);
 
+    
+    auto props = config.get_user_properties();
+
+  
+
+
+    //checking if the introduced property is received at this stage
+    auto it = props.find(ov::intel_gpu::enable_gtpin.name());
+    try{
+    std::cout << "[compile_model] user map has enable_gtpin = "
+          << (it != props.end()) << std::endl;
+
+    if (it != props.end()) {
+        std::cout << "[compile_model] user map enable_gtpin value = "
+              << it->second.as<bool>() << std::endl;
+    }
+
+    std::cout << "[compile_model] ExecutionConfig get_property(enable_gtpin) before finalize = "
+          << config.get_property(ov::intel_gpu::enable_gtpin.name(), OptionVisibility::RELEASE).as<bool>()
+          << std::endl; 
+    } catch (const std::exception &e){
+        std::cout << "[compile_model] enable_gtpin get_property failed: "
+                  << e.what() << std::endl;
+    }
+    //End of diagnostic
+
     auto transformed_model = clone_and_transform_model(model, config, context);
 
     config.finalize(context.get(), transformed_model.get());
+
+    //Verify if final modifies flagstd::cout << "[compile_model] ExecutionConfig get_property(enable_gtpin) after finalize = "
+    try{
+        std::cout << "[compile_model] ExecutionConfig get_property(enable_gtpin) after finalize = "
+              << config.get_property(ov::intel_gpu::enable_gtpin.name(), OptionVisibility::RELEASE).as<bool>() << std::endl;
+    }catch(const std::exception& e){
+        std::cout << "[compile_model_finalize] enable_gtpin get_property failed: "
+              << e.what() << std::endl;
+    }
+    //
     {
         OV_ITT_SCOPED_TASK(itt::domains::intel_gpu_plugin, "Plugin::compile_model::CreateCompiledModel");
+        //connects to the compiled_model.cpp file
         return std::make_shared<CompiledModel>(transformed_model, shared_from_this(), context, config);
     }
 }
@@ -759,6 +799,9 @@ std::vector<ov::PropertyName> Plugin::get_supported_properties() const {
         ov::PropertyName{ov::compatibility_check.name(), PropertyMutability::RO},
 
         // Configs
+        //registering with defined properties
+        ov::PropertyName{ov::intel_gpu::enable_gtpin.name(), PropertyMutability::RW},
+        //
         ov::PropertyName{ov::enable_profiling.name(), PropertyMutability::RW},
         ov::PropertyName{ov::hint::model_priority.name(), PropertyMutability::RW},
         ov::PropertyName{ov::intel_gpu::hint::host_task_priority.name(), PropertyMutability::RW},
