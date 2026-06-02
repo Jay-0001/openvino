@@ -47,7 +47,9 @@
 #include "transformations/rt_info/fused_names_attribute.hpp"
 #include "transformations/utils/utils.hpp"
 
-
+#ifdef ENABLE_GTPIN_INTEGRATION
+#include "gtpin_api.h"
+#endif
 
 // Undef DEVICE_TYPE macro which can be defined somewhere in windows headers as DWORD and conflict with our metric
 #ifdef DEVICE_TYPE
@@ -276,6 +278,33 @@ std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<
     
     auto props = config.get_user_properties();
 
+      //verifying if GTPin can be accessed within OV
+    #ifdef ENABLE_GTPIN_INTEGRATION
+    try {
+        auto* core = gtpin::GTPin_GetCore();
+
+        if (core) {
+            const auto& arch = core->GenArch();
+
+            std::cout
+                << "[GTPIN] Successfully obtained GTPin core interface inside OV"
+                << std::endl;
+        } else {
+            std::cout
+                << "[GTPIN] GTPin_GetCore() returned nullptr inside OV"
+                << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cout
+            << "[GTPIN] Exception: "
+            << e.what()
+            << std::endl;
+    } catch (...) {
+        std::cout
+            << "[GTPIN] Unknown exception while accessing GTPin"
+            << std::endl;
+    }
+    #endif
   
 
 

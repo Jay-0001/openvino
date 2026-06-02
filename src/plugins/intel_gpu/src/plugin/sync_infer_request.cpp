@@ -145,6 +145,8 @@ SyncInferRequest::~SyncInferRequest() {
 }
 
 void SyncInferRequest::infer() {
+    //diagnostic added 
+    std::cout << "[Infer] Entering SyncInferRequest::infer()" << std::endl;
     // String can be constructed once in the constructor
     OV_ITT_SCOPED_TASK_BASE(itt::domains::intel_gpu_inference,  m_itt_infer_request_str.c_str());
     setup_stream_graph();

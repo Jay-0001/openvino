@@ -7,6 +7,8 @@ if (NOT ENABLE_INTEL_GPU)
 endif()
 
 set (TARGET_NAME "openvino_intel_gpu_plugin")
+#added modificn
+option(ENABLE_GTPIN_INTEGRATION "Enable local GTPin integration in Intel GPU plugin" OFF)
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/utils.cmake)
 
@@ -150,6 +152,45 @@ target_link_libraries(${TARGET_NAME} PRIVATE openvino_intel_gpu_graph openvino::
 
 target_include_directories(${TARGET_NAME} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include/)
+
+#Optional GTPin integration added
+if(ENABLE_GTPIN_INTEGRATION)
+    set(GTPIN_ROOT "" CACHE PATH "Path to GTPin Profilers directory")
+
+     if(NOT EXISTS "${GTPIN_ROOT}")
+        message(FATAL_ERROR
+            "GTPIN_ROOT does not exist: ${GTPIN_ROOT}")
+    endif()
+    
+    set(GTPIN_INCLUDE_DIR "${GTPIN_ROOT}/Include")
+    set(GTPIN_API_INCLUDE_DIR "${GTPIN_ROOT}/Include/api")
+    set(GTPIN_GED_INCLUDE_DIR "${GTPIN_ROOT}/Include/ged/intel64")
+    set(GTPIN_LIB_DIR "${GTPIN_ROOT}/Lib/intel64")
+
+    target_include_directories(${TARGET_NAME} PRIVATE
+        "${GTPIN_INCLUDE_DIR}"
+        "${GTPIN_API_INCLUDE_DIR}"
+        "${GTPIN_GED_INCLUDE_DIR}"
+    )
+
+    target_link_directories(${TARGET_NAME} PRIVATE
+        "${GTPIN_LIB_DIR}"
+    )
+
+    target_link_libraries(${TARGET_NAME} PRIVATE
+        gtpin
+        gtpin_core
+        iga_wrapper
+        ged
+    )
+
+    target_compile_definitions(${TARGET_NAME} PRIVATE
+        ENABLE_GTPIN_INTEGRATION
+    )
+endif()
+#end of GTPin integration logic
+
+
 
 ov_set_threading_interface_for(${TARGET_NAME})
 ov_gpu_set_runtime_interface_for(${TARGET_NAME})
