@@ -16,40 +16,15 @@ file(GLOB LIBRARY_SOURCES_OCL
     "${CMAKE_CURRENT_SOURCE_DIR}/ocl/*.cpp"
 )
 
-file(GLOB LIBRARY_SOURCES_ZE
-    "${CMAKE_CURRENT_SOURCE_DIR}/ze/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ze/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ze/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ze/compute_runtime/*.h"
-)
+set(LIBRARY_SOURCES_ALL
+    ${LIBRARY_SOURCES_MAIN}
+    ${LIBRARY_SOURCES_OCL}
+  )
 
-file(GLOB LIBRARY_SOURCES_SYCL
-    "${CMAKE_CURRENT_SOURCE_DIR}/sycl/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sycl/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sycl/*.cpp"
-)
+file(GLOB_RECURSE SYCL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/ocl/sycl_*.cpp")
 
-file(GLOB_RECURSE OCL_SYCL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/ocl/sycl_*.[ch]pp")
-
-if(NOT OV_GPU_WITH_SYCL)
-    list(REMOVE_ITEM LIBRARY_SOURCES_OCL ${OCL_SYCL_SOURCES})
-endif()
-
-set(LIBRARY_SOURCES_ALL ${LIBRARY_SOURCES_MAIN})
-
-if(GPU_RT_TYPE STREQUAL "OCL")
-    list(APPEND LIBRARY_SOURCES_ALL ${LIBRARY_SOURCES_OCL})
-    set(SYCL_SOURCES ${OCL_SYCL_SOURCES})
-endif()
-
-if(GPU_RT_TYPE STREQUAL "ZE")
-    list(APPEND LIBRARY_SOURCES_ALL ${LIBRARY_SOURCES_OCL})
-    list(APPEND LIBRARY_SOURCES_ALL ${LIBRARY_SOURCES_ZE})
-endif()
-
-if(GPU_RT_TYPE STREQUAL "SYCL")
-    list(APPEND LIBRARY_SOURCES_ALL ${LIBRARY_SOURCES_SYCL})
-    set(SYCL_SOURCES ${LIBRARY_SOURCES_SYCL})
+if(NOT OV_COMPILER_IS_INTEL_LLVM)
+    list(REMOVE_ITEM LIBRARY_SOURCES_ALL ${SYCL_SOURCES})
 endif()
 
 add_library(${TARGET_NAME} STATIC ${LIBRARY_SOURCES_ALL})
@@ -73,7 +48,7 @@ target_compile_options(${TARGET_NAME} PRIVATE
     >
   >)
 
-if(OV_GPU_WITH_SYCL)
+if(OV_COMPILER_IS_INTEL_LLVM)
     add_sycl_to_target(TARGET ${TARGET_NAME} SOURCES ${SYCL_SOURCES})
     target_compile_definitions(${TARGET_NAME} PUBLIC OV_GPU_WITH_SYCL)
 endif()
@@ -82,10 +57,35 @@ if(ENABLE_ONEDNN_FOR_GPU)
   ov_target_link_libraries_as_system(${TARGET_NAME} PUBLIC onednn_gpu_tgt)
 endif()
 
-ov_set_threading_interface_for(${TARGET_NAME})
-ov_gpu_set_runtime_interface_for(${TARGET_NAME})
 
-# Requires OpenCL even for Level Zero builds because of kernel builder and OneDNN
+#GTPin integration includes
+if(ENABLE_GTPIN_INTEGRATION)
+    target_include_directories(${TARGET_NAME} PRIVATE
+        "${GTPIN_INCLUDE_DIR}"
+        "${GTPIN_API_INCLUDE_DIR}"
+        "${GTPIN_GED_INCLUDE_DIR}"
+    )
+
+    target_compile_definitions(${TARGET_NAME} PRIVATE
+        ENABLE_GTPIN_INTEGRATION
+    )
+
+    target_link_directories(${TARGET_NAME} PRIVATE
+        "${GTPIN_LIB_DIR}"
+    )
+
+    target_link_libraries(${TARGET_NAME} PRIVATE
+        gtpin
+        gtpin_core
+        iga_wrapper
+        ged
+    )
+endif()
+#End of GTPin integration logic
+
+
+ov_set_threading_interface_for(${TARGET_NAME})
+
 target_link_libraries(${TARGET_NAME} PRIVATE
     OpenCL::OpenCL
     openvino::itt
