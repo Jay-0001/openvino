@@ -45,6 +45,7 @@ Graph::Graph(std::shared_ptr<ov::Model> model, const RemoteContextImpl::Ptr& con
     , m_config(config)
     , m_stream_id(stream_id) {
     auto program_builder = std::make_shared<ProgramBuilder>(model, get_engine(), config);
+    //config flows into the graph
     m_config = program_builder->get_config();
 
     build(program_builder->get_compiled_program());
@@ -137,12 +138,12 @@ Graph::~Graph() {
 
         auto print_entry = [this, &get_time_str, &log_level](std::string name, HostTimeProfilingEntry& entry, int64_t iters_num = 1) {
             if (log_level == 1) {
-                GPU_DEBUG_COUT << "[network_id=" << m_network->get_id() << " stream_id=" << m_stream_id << " iter_num=" << iters_num << "] " << name << " infer enqueue host time: "
+                GPU_DEBUG_COUT << "[stream_id=" << m_stream_id << "] " << name << " infer enqueue host time: "
                                << get_time_str(entry.enqueue, iters_num) << std::endl;
             } else if (log_level >= 2) {
                 auto total_time = entry.inputs_processing + entry.enqueue + entry.wait + entry.outputs_processing;
 
-                GPU_DEBUG_COUT << "[network_id=" << m_network->get_id() << " stream_id=" << m_stream_id << " iter_num=" << iters_num << "] " << name << " infer host time: "
+                GPU_DEBUG_COUT << "[stream_id=" << m_stream_id << "] " << name << " infer host time: "
                                << get_time_str(total_time, iters_num) << std::endl;
                 GPU_DEBUG_COUT << " - " << " Inputs processing: " << get_time_str(entry.inputs_processing, iters_num) << std::endl;
                 GPU_DEBUG_COUT << " - " << " Enqueue: " << get_time_str(entry.enqueue, iters_num) << std::endl;
@@ -160,13 +161,13 @@ Graph::~Graph() {
 
             const auto begin = std::begin(host_exec_times) + 1;
             const auto end = std::end(host_exec_times);
-            avg.inputs_processing = std::accumulate(begin, end, int64_t{0},
+            avg.inputs_processing = std::accumulate(begin, end, 0,
                 [](int64_t sum, const HostTimeProfilingEntry& entry) { return sum + entry.inputs_processing; });
-            avg.enqueue = std::accumulate(begin, end, int64_t{0},
+            avg.enqueue = std::accumulate(begin, end, 0,
                 [](int64_t sum, const HostTimeProfilingEntry& entry) { return sum + entry.enqueue; });
-            avg.wait = std::accumulate(begin, end, int64_t{0},
+            avg.wait = std::accumulate(begin, end, 0,
                 [](int64_t sum, const HostTimeProfilingEntry& entry) { return sum + entry.wait; });
-            avg.outputs_processing = std::accumulate(begin, end, int64_t{0},
+            avg.outputs_processing = std::accumulate(begin, end, 0,
                 [](int64_t sum, const HostTimeProfilingEntry& entry) { return sum + entry.outputs_processing; });
 
             const auto iters_num = host_exec_times.size() - 1;
@@ -247,8 +248,6 @@ std::shared_ptr<ov::Model> Graph::get_runtime_model(std::vector<cldnn::primitive
                 { "detection_output", "DetectionOutput" },
                 { "eltwise", "Eltwise" },
                 { "fully_connected", "FullyConnected" },
-                { "gated_delta_net", "GatedDeltaNet" },
-                { "paged_causal_conv1d", "PagedCausalConv1D" },
                 { "gather", "Gather" },
                 { "gemm", "Gemm" },
                 { "gru_seq", "GRU_Seq" },
@@ -739,7 +738,7 @@ std::vector<ov::ProfilingInfo> Graph::get_profiling_info() const {
                 continue;
 
             cldnn::instrumentation::profiling_info cldnnInfo{primId, event->get_profiling_info()};
-
+ 
             // Collect timings
             long long cpuTime = 0;
             long long deviceTime = 0;

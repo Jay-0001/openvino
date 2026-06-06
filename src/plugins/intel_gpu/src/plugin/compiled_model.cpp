@@ -6,6 +6,7 @@
 #include "openvino/runtime/intel_gpu/properties.hpp"
 #include "openvino/runtime/internal_properties.hpp"
 #include "openvino/runtime/plugin_config.hpp"
+#include "openvino/util/weights_path.hpp"
 
 #include "intel_gpu/graph/serialization/binary_buffer.hpp"
 #include "intel_gpu/runtime/itt.hpp"
@@ -65,6 +66,17 @@ CompiledModel::CompiledModel(std::shared_ptr<ov::Model> model,
     for (uint16_t n = 0; n < m_config.get_num_streams(); n++) {
         auto graph = n == 0 ? graph_base : std::make_shared<Graph>(graph_base, n);
         m_graphs.push_back(graph);
+    }
+    
+    try{
+    //diagnostic to check if flag has propagated from teh plugin
+    std::cout << "[CompiledModel] ExecutionConfig get_property(enable_gtpin) = "
+          << m_config.get_property(ov::intel_gpu::enable_gtpin.name(), OptionVisibility::RELEASE).as<bool>()
+          << std::endl;
+    //
+    } catch(const std::exception& e) {
+    std::cout << "[CompiledModel] enable_gtpin get_property failed: "
+              << e.what() << std::endl;
     }
 }
 
