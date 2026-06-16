@@ -7,6 +7,13 @@
 #include "ocl_device.hpp"
 #include "ocl_common.hpp"
 
+#ifdef ENABLE_GTPIN_INTEGRATION
+#    include "gtpin/gtpin_profiler.hpp"
+#include <iostream>
+#include <sstream>
+#include <mutex>
+#endif
+
 #include <string>
 #include <vector>
 
@@ -23,6 +30,15 @@ namespace {
 static const char create_device_error_msg[] =
     "[GPU] No supported OCL devices found or unexpected error happened during devices query.\n"
     "[GPU] Please check OpenVINO documentation for GPU drivers setup guide.\n";
+
+void initialize_gtpin_once_before_ocl_runtime() {
+#ifdef ENABLE_GTPIN_INTEGRATION
+    std::cout
+    << "[GTPIN] Initializing before OpenCL platform discovery"
+    << std::endl;
+    ov::intel_gpu::gtpin::initialize_once();
+#endif
+}
 
 std::vector<std::string> split(const std::string& s, char delim) {
     std::vector<std::string> result;
@@ -175,6 +191,9 @@ std::map<std::string, device::ptr> ocl_device_detector::get_available_devices(vo
 }
 
 std::vector<device::ptr> ocl_device_detector::create_device_list() const {
+    //newer orchestration point
+    initialize_gtpin_once_before_ocl_runtime();
+
     cl_uint num_platforms = 0;
     // Get number of platforms available
     cl_int error_code = clGetPlatformIDs(0, nullptr, &num_platforms);
@@ -231,6 +250,9 @@ std::vector<device::ptr> ocl_device_detector::create_device_list_from_user_conte
 }
 
 std::vector<device::ptr> ocl_device_detector::create_device_list_from_user_device(void* user_device) const {
+    //newer orchestration point
+    initialize_gtpin_once_before_ocl_runtime();
+
     cl_uint num_platforms = 0;
     // Get number of platforms availible
     cl_int error_code = clGetPlatformIDs(0, nullptr, &num_platforms);

@@ -16,12 +16,17 @@ file(GLOB LIBRARY_SOURCES_OCL
     "${CMAKE_CURRENT_SOURCE_DIR}/ocl/*.cpp"
 )
 
-file(GLOB LIBRARY_SOURCES_ZE
-    "${CMAKE_CURRENT_SOURCE_DIR}/ze/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ze/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ze/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ze/compute_runtime/*.h"
+file(GLOB LIBRARY_SOURCES_GTPIN
+    "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.cpp"
 )
+
+set(LIBRARY_SOURCES_ALL
+    ${LIBRARY_SOURCES_MAIN}
+    ${LIBRARY_SOURCES_OCL}
+    ${LIBRARY_SOURCES_GTPIN}
+  )
 
 file(GLOB LIBRARY_SOURCES_SYCL
     "${CMAKE_CURRENT_SOURCE_DIR}/sycl/*.h"
@@ -81,6 +86,25 @@ endif()
 if(ENABLE_ONEDNN_FOR_GPU)
   ov_target_link_libraries_as_system(${TARGET_NAME} PUBLIC onednn_gpu_tgt)
 endif()
+
+
+#GTPin integration includes
+if(ENABLE_GTPIN_INTEGRATION)
+    target_include_directories(${TARGET_NAME} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+
+        "${GTPIN_INCLUDE_DIR}"
+        "${GTPIN_API_INCLUDE_DIR}"
+        "${GTPIN_GED_INCLUDE_DIR}"
+    )
+
+    target_compile_definitions(${TARGET_NAME} PRIVATE
+        ENABLE_GTPIN_INTEGRATION
+    )
+
+endif()
+#End of GTPin integration logic
+
 
 ov_set_threading_interface_for(${TARGET_NAME})
 ov_gpu_set_runtime_interface_for(${TARGET_NAME})
