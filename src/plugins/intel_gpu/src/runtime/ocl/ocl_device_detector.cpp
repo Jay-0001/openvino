@@ -7,6 +7,12 @@
 #include "ocl_device.hpp"
 #include "ocl_common.hpp"
 
+#ifdef ENABLE_GTPIN_INTEGRATION
+#    include "gtpin/gtpin_profiler.hpp"
+#include <iostream>
+#include <sstream>
+#endif
+
 #include <string>
 #include <vector>
 
@@ -23,6 +29,12 @@ namespace {
 static const char create_device_error_msg[] =
     "[GPU] No supported OCL devices found or unexpected error happened during devices query.\n"
     "[GPU] Please check OpenVINO documentation for GPU drivers setup guide.\n";
+
+void initialize_gtpin_once_before_ocl_runtime() {
+#ifdef ENABLE_GTPIN_INTEGRATION
+    ov::intel_gpu::gtpin::initialize_once();
+#endif
+}
 
 std::vector<std::string> split(const std::string& s, char delim) {
     std::vector<std::string> result;
@@ -69,6 +81,20 @@ bool does_device_match_config(const cl::Device& device) {
     return true;
 }
 
+// The priority return by this function impacts the order of devices reported by GPU plugin and devices enumeration
+// Lower priority value means lower device ID
+// Current behavior is: Intel iGPU < Intel dGPU < any other GPU
+// Order of Intel dGPUs is undefined and depends on the OCL impl
+// Order of other vendor GPUs is undefined and depends on the OCL impl
+size_t get_device_priority(const cldnn::device_info& info) {
+    if (info.vendor_id == cldnn::INTEL_VENDOR_ID && info.dev_type == cldnn::device_type::integrated_gpu) {
+        return 0;
+    } else if (info.vendor_id == cldnn::INTEL_VENDOR_ID) {
+        return 1;
+    } else {
+        return std::numeric_limits<size_t>::max();
+    }
+}
 }  // namespace
 
 namespace cldnn {
@@ -119,6 +145,16 @@ static std::vector<cl::Device> getSubDevices(cl::Device& rootDevice) {
     return subDevices;
 }
 
+std::vector<device::ptr> ocl_device_detector::sort_devices(const std::vector<device::ptr>& devices_list) {
+    std::vector<device::ptr> sorted_list = devices_list;
+    std::stable_sort(sorted_list.begin(), sorted_list.end(), [](device::ptr d1,  device::ptr d2) {
+        return get_device_priority(d1->get_info()) < get_device_priority(d2->get_info());
+    });
+
+    return sorted_list;
+}
+
+//J -- The connection point -- engine to device query to device detector
 std::map<std::string, device::ptr> ocl_device_detector::get_available_devices(void* user_context,
                                                                               void* user_device,
                                                                               int ctx_device_id,
@@ -175,6 +211,10 @@ std::map<std::string, device::ptr> ocl_device_detector::get_available_devices(vo
 }
 
 std::vector<device::ptr> ocl_device_detector::create_device_list() const {
+    //==================newer orchestration point
+    std::cerr<< "[GTPIN] Initializing before OpenCL platform discovery"<< std::endl;
+    initialize_gtpin_once_before_ocl_runtime();
+    //=======================================
     cl_uint num_platforms = 0;
     // Get number of platforms available
     cl_int error_code = clGetPlatformIDs(0, NULL, &num_platforms);

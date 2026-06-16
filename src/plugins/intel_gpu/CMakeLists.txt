@@ -21,7 +21,6 @@ if(ENABLE_GTPIN_INTEGRATION)
     set(GTPIN_INCLUDE_DIR "${GTPIN_ROOT}/Include")
     set(GTPIN_API_INCLUDE_DIR "${GTPIN_ROOT}/Include/api")
     set(GTPIN_GED_INCLUDE_DIR "${GTPIN_ROOT}/Include/ged/intel64")
-    set(GTPIN_LIB_DIR "${GTPIN_ROOT}/Lib/intel64")
 endif()
 
 
@@ -102,17 +101,6 @@ if(ENABLE_GTPIN_INTEGRATION)
         "${GTPIN_INCLUDE_DIR}"
         "${GTPIN_API_INCLUDE_DIR}"
         "${GTPIN_GED_INCLUDE_DIR}"
-    )
-
-    target_link_directories(${TARGET_NAME} PRIVATE
-        "${GTPIN_LIB_DIR}"
-    )
-
-    target_link_libraries(${TARGET_NAME} PRIVATE
-        gtpin
-        gtpin_core
-        iga_wrapper
-        ged
     )
 
     target_compile_definitions(${TARGET_NAME} PRIVATE

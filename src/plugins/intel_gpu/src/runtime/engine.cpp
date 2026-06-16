@@ -1,3 +1,4 @@
+//temporary version -- not original
 // Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -23,14 +24,6 @@
 #  define NOMINMAX
 # endif
 # include <windows.h>
-
-
-#ifdef ENABLE_GTPIN_INTEGRATION
-    #include "gtpin_api.h"
-    #include <iostream>
-    #include <mutex>
-    using namespace gtpin;
-#endif
 
 
 static size_t get_cpu_ram_size() {
@@ -265,107 +258,9 @@ bool engine::get_enable_large_allocations() const {
 
 
 
-
-//Quick tool registration test
-#ifdef ENABLE_GTPIN_INTEGRATION
-
-//So that's why we use GtTool
-class OVGTPinTool : public gtpin::IGtTool {
-public:
-    const char* Name() const override { return "ov_gtpin_probe"; }
-
-    //must implement all virtual functions
-    uint32_t ApiVersion() const override {
-        return GTPIN_API_VERSION;
-    }
-
-    OVGTPinTool() {
-        std::cout << "[GTPIN] Tool constructed\n";
-    }
-
-    void OnKernelBuild(gtpin::IGtKernelInstrument& instrument) override {
-        std::cout << "[GTPIN] OnKernelBuild hit" << std::endl;
-    }
-
-    void OnKernelRun(gtpin::IGtKernelDispatch& dispatch) override {
-        std::cout << "[GTPIN] OnKernelRun hit" << std::endl;
-    }
-
-    void OnKernelComplete(gtpin::IGtKernelDispatch& dispatch) override {
-        std::cout << "[GTPIN] OnKernelComplete hit" << std::endl;
-    }
-
-    ~OVGTPinTool() {
-        std::cout << "[GTPIN] Tool destroyed\n";
-    }
-};
-
-//Yes! That's a good question!! Does the tool get to live? Or is it destroyed immediate after being called within the plugin
-//Next attempt should try and let the plugin object wrap this tool object
-void initialize_gtpin_once() {
-    static std::once_flag flag;
-    static OVGTPinTool tool;
-
-    std::call_once(flag, [] {
-        auto* core = gtpin::GTPin_GetCore();
-
-        if (!core) {
-            std::cout << "[GTPIN] GTPin_GetCore returned nullptr" << std::endl;
-            return;
-        }
-
-        //without the utils what does this call resolve to? This function was never defined elsewhere??
-        //resolves to dlls
-        auto handle = core->RegisterTool(tool);
-
-        if (!handle) {
-            std::cout << "[GTPIN] RegisterTool FAILED\n";
-            
-            //richer diagnostics
-            const auto& err = core->LastError();
-            std::cout << "[GTPIN] RegisterTool FAILED" << std::endl;
-            auto status = err.Status();
-
-            std::cout << "[GTPIN] Status Code: "
-                << status.ToString()
-                << std::endl;
-
-            std::cout << "[GTPIN] IsError: "
-                << status.IsError()
-                << std::endl;
-
-            std::cout << "[GTPIN] Description: "
-                << err.ToString()
-                << std::endl;
-            
-            return;
-        }
-
-        std::cout << "[GTPIN] RegisterTool succeeded. Handle = "<< handle << std::endl;
-    });
-}
-
-//mimicking funtime
-
-#endif
-
-//end of quick GTPin registration
-
-
-
-
 //J--Is this the GPU runtime creation spot?
 std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type, runtime_types runtime_type, const device::ptr device) {
     std::shared_ptr<cldnn::engine> ret;
-
-//GTPin tool registration
-std::cout << "[Runtime-GTPin] before GTPin registration" << std::endl;
-#ifdef ENABLE_GTPIN_INTEGRATION
-    initialize_gtpin_once();
-#endif
-    std::cout << "[Runtime-GTPin] after GTPin registration" << std::endl;
-    std::cout << "[Runtime-GTPin] before create_ocl_engine" << std::endl;
-
 
     switch (engine_type) {
 #ifdef OV_GPU_WITH_SYCL
@@ -380,8 +275,10 @@ std::cout << "[Runtime-GTPin] before GTPin registration" << std::endl;
         throw std::runtime_error("Invalid engine type");
     }
 
-
-    std::cout << "[Runtime-GTPin] after create_ocl_engine" << std::endl;
+    //J--engine diagnostics
+    static std::atomic<uint32_t> engine_counter{0};
+    auto id = ++engine_counter;
+    std::cerr<< "[OV][ENGINE] create_ocl_engine invoked #"<< id<< std::endl;
 
 
     const auto& info = device->get_info();
@@ -395,6 +292,8 @@ std::cout << "[Runtime-GTPin] before GTPin registration" << std::endl;
 
 std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type, runtime_types runtime_type) {
     device_query query(engine_type, runtime_type, nullptr, nullptr, 0, -1, true);
+
+    //the earliest OCL point of contact?
     auto devices = query.get_available_devices();
 
     OPENVINO_ASSERT(!devices.empty(), "[GPU] Can't create ", engine_type, " engine for ", runtime_type, " runtime as no suitable devices are found\n"

@@ -12,17 +12,49 @@ namespace ov::intel_gpu::gtpin {
 
 SharedLibrary::SharedLibrary(void* handle, bool unload_on_destroy)
     : m_handle(handle),
-      m_unload_on_destroy(unload_on_destroy) {}
+      m_unload_on_destroy(unload_on_destroy) {
+    std::cerr << "[OV][GTPIN] SharedLibrary constructor. handle="
+              << m_handle
+              << ", unload_on_destroy="
+              << (m_unload_on_destroy ? "true" : "false")
+              << std::endl;
+}
 
 SharedLibrary::~SharedLibrary() {
-    if (!m_handle || !m_unload_on_destroy) {
+    std::cerr << "[OV][GTPIN] SharedLibrary destructor. handle="
+              << m_handle
+              << ", unload_on_destroy="
+              << (m_unload_on_destroy ? "true" : "false")
+              << std::endl;
+
+    if (!m_handle) {
+        std::cerr << "[OV][GTPIN] SharedLibrary destructor skipped unload: null handle "
+                  << std::endl;
+        return;
+    }
+
+    if (!m_unload_on_destroy) {
+        std::cerr << "[OV][GTPIN] SharedLibrary destructor keeping library loaded"
+                  << std::endl;
         return;
     }
 
 #ifdef _WIN32
-    FreeLibrary(static_cast<HMODULE>(m_handle));
+    if (!FreeLibrary(static_cast<HMODULE>(m_handle))) {
+        std::cerr << "[OV][GTPIN] FreeLibrary failed. error="
+                  << GetLastError()
+                  << std::endl;
+    } else {
+        std::cerr << "[OV][GTPIN] FreeLibrary succeeded" << std::endl;
+    }
 #else
-    dlclose(m_handle);
+    if (dlclose(m_handle) != 0) {
+        std::cerr << "[OV][GTPIN] dlclose failed. error="
+                  << dlerror()
+                  << std::endl;
+    } else {
+        std::cerr << "[OV][GTPIN] dlclose succeeded" << std::endl;
+    }
 #endif
 
     m_handle = nullptr;
@@ -32,6 +64,14 @@ std::pair<std::unique_ptr<SharedLibrary>, bool>
 SharedLibrary::load(const std::string& path,
                     bool global_symbols,
                     bool unload_on_destroy) {
+    std::cerr << "[OV][GTPIN] SharedLibrary::load begin. path="
+              << path
+              << ", global_symbols="
+              << (global_symbols ? "true" : "false")
+              << ", unload_on_destroy="
+              << (unload_on_destroy ? "true" : "false")
+              << std::endl;
+
 #ifdef _WIN32
     (void)global_symbols;
 
@@ -48,6 +88,12 @@ SharedLibrary::load(const std::string& path,
                   << std::endl;
         return {nullptr, false};
     }
+
+    std::cerr << "[OV][GTPIN] SharedLibrary::load succeeded. path="
+              << path
+              << ", handle="
+              << static_cast<void*>(handle)
+              << std::endl;
 
     return {
         std::unique_ptr<SharedLibrary>(
@@ -67,6 +113,12 @@ SharedLibrary::load(const std::string& path,
         return {nullptr, false};
     }
 
+    std::cerr << "[OV][GTPIN] SharedLibrary::load succeeded. path="
+              << path
+              << ", handle="
+              << handle
+              << std::endl;
+
     return {
         std::unique_ptr<SharedLibrary>(
             new SharedLibrary(handle, unload_on_destroy)),
@@ -76,7 +128,13 @@ SharedLibrary::load(const std::string& path,
 }
 
 void* SharedLibrary::symbol(const std::string& name) const {
+    std::cerr << "[OV][GTPIN] Resolving symbol: "
+              << name
+              << std::endl;
+
     if (!m_handle) {
+        std::cerr << "[OV][GTPIN] Failed to resolve symbol: null library handle"
+                  << std::endl;
         return nullptr;
     }
 
@@ -88,7 +146,15 @@ void* SharedLibrary::symbol(const std::string& name) const {
                   << ", error="
                   << GetLastError()
                   << std::endl;
+        return nullptr;
     }
+
+    std::cerr << "[OV][GTPIN] Resolved symbol: "
+              << name
+              << ", address="
+              << reinterpret_cast<void*>(symbol)
+              << std::endl;
+
     return reinterpret_cast<void*>(symbol);
 #else
     dlerror();
@@ -103,6 +169,12 @@ void* SharedLibrary::symbol(const std::string& name) const {
                   << std::endl;
         return nullptr;
     }
+
+    std::cerr << "[OV][GTPIN] Resolved symbol: "
+              << name
+              << ", address="
+              << symbol
+              << std::endl;
 
     return symbol;
 #endif

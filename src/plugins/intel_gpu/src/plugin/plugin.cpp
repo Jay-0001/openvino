@@ -47,11 +47,6 @@
 #include "transformations/utils/utils.hpp"
 
 
-#ifdef ENABLE_GTPIN_INTEGRATION
-#include "gtpin_api.h"
-using namespace gtpin;
-#endif
-
 // Undef DEVICE_TYPE macro which can be defined somewhere in windows headers as DWORD and conflict with our metric
 #ifdef DEVICE_TYPE
 #undef DEVICE_TYPE
@@ -237,103 +232,15 @@ std::map<std::string, RemoteContextImpl::Ptr> Plugin::get_default_contexts() con
 }
 
 
-//Quick tool registration test
-#ifdef ENABLE_GTPIN_INTEGRATION
-
-//So that's why we use GtTool
-class OVGTPinTool : public gtpin::IGtTool {
-public:
-    const char* Name() const override { return "ov_gtpin_probe"; }
-
-    //must implement all virtual functions
-    uint32_t ApiVersion() const override {
-        return GTPIN_API_VERSION;
-    }
-
-    OVGTPinTool() {
-        std::cout << "[GTPIN] Tool constructed\n";
-    }
-
-    void OnKernelBuild(gtpin::IGtKernelInstrument& instrument) override {
-        std::cout << "[GTPIN] OnKernelBuild hit" << std::endl;
-    }
-
-    void OnKernelRun(gtpin::IGtKernelDispatch& dispatch) override {
-        std::cout << "[GTPIN] OnKernelRun hit" << std::endl;
-    }
-
-    void OnKernelComplete(gtpin::IGtKernelDispatch& dispatch) override {
-        std::cout << "[GTPIN] OnKernelComplete hit" << std::endl;
-    }
-
-    ~OVGTPinTool() {
-        std::cout << "[GTPIN] Tool destroyed\n";
-    }
-};
-
-//Yes! That's a good question!! Does the tool get to live? Or is it destroyed immediate after being called within the plugin
-//Next attempt should try and let the plugin object wrap this tool object
-void initialize_gtpin_once() {
-    static std::once_flag flag;
-    static OVGTPinTool tool;
-
-    std::call_once(flag, [] {
-        auto* core = gtpin::GTPin_GetCore();
-
-        if (!core) {
-            std::cout << "[GTPIN] GTPin_GetCore returned nullptr" << std::endl;
-            return;
-        }
-
-        //without the utils what does this call resolve to? This function was never defined elsewhere??
-        //resolves to dlls
-        auto handle = core->RegisterTool(tool);
-
-        if (!handle) {
-            std::cout << "[GTPIN] RegisterTool FAILED\n";
-            
-            //richer diagnostics
-            const auto& err = core->LastError();
-            std::cout << "[GTPIN] RegisterTool FAILED" << std::endl;
-            auto status = err.Status();
-
-            std::cout << "[GTPIN] Status Code: "
-                << status.ToString()
-                << std::endl;
-
-            std::cout << "[GTPIN] IsError: "
-                << status.IsError()
-                << std::endl;
-
-            std::cout << "[GTPIN] Description: "
-                << err.ToString()
-                << std::endl;
-            
-            return;
-        }
-
-        std::cout << "[GTPIN] RegisterTool succeeded. Handle = "<< handle << std::endl;
-    });
-}
-
-#endif
-
-
-//end of quick GTPin registration
-
-
 Plugin::Plugin() {
     set_device_name("GPU");
     register_primitives();
 
     std::cout << "[OV] Plugin::Plugin begin" << std::endl;
     //std::cout << "[OV] before GTPin registration" << std::endl;
-
-    //Quick GTPin verification
-#ifdef ENABLE_GTPIN_INTEGRATION
-    //initialize_gtpin_once();
-#endif
-    //std::cout << "[OV] after GTPin registration" << std::endl;
+    std::cout << "Attaching Process Explorer now..." << std::endl;
+    //sleep logic for process explorer
+    std::this_thread::sleep_for(std::chrono::seconds(10));
     
     // Set OCL runtime which should be always available
 #ifdef OV_GPU_WITH_SYCL
@@ -355,7 +262,7 @@ Plugin::Plugin() {
 
 std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<const ov::Model>& model, const ov::AnyMap& orig_config) const {
     
-    std::cout << "[OV] compile_model begin" << std::endl;
+    std::cerr << "[OV] compile_model begin" << std::endl;
     
     //Mapped to the itt.hpp file
     OV_ITT_SCOPED_TASK(itt::domains::intel_gpu_plugin, "Plugin::compile_model");
@@ -371,36 +278,6 @@ std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<
     
     auto props = config.get_user_properties();
 
-      //verifying if GTPin can be accessed within OV
-    #ifdef ENABLE_GTPIN_INTEGRATION
-    try {
-        auto* core = gtpin::GTPin_GetCore();
-
-        if (core) {
-            const auto& arch = core->GenArch();
-
-            std::cout
-                << "[GTPIN] Successfully obtained GTPin core interface inside OV"
-                << std::endl;
-        } else {
-            std::cout
-                << "[GTPIN] GTPin_GetCore() returned nullptr inside OV"
-                << std::endl;
-        }
-    } catch (const std::exception& e) {
-        std::cout
-            << "[GTPIN] Exception: "
-            << e.what()
-            << std::endl;
-    } catch (...) {
-        std::cout
-            << "[GTPIN] Unknown exception while accessing GTPin"
-            << std::endl;
-    }
-    #endif
-  
-
-
     //checking if the introduced property is received at this stage
     auto it = props.find(ov::intel_gpu::enable_gtpin.name());
     try{
@@ -412,9 +289,9 @@ std::shared_ptr<ov::ICompiledModel> Plugin::compile_model(const std::shared_ptr<
             //  << it->second.as<bool>() << std::endl;
     }
 
-    std::cout << "[compile_model] ExecutionConfig get_property(enable_gtpin) before finalize = "
-          << config.get_property(ov::intel_gpu::enable_gtpin.name(), OptionVisibility::RELEASE).as<bool>()
-          << std::endl; 
+    //std::cout << "[compile_model] ExecutionConfig get_property(enable_gtpin) before finalize = "
+          //<< config.get_property(ov::intel_gpu::enable_gtpin.name(), OptionVisibility::RELEASE).as<bool>()
+          //<< std::endl; 
     } catch (const std::exception &e){
         //std::cout << "[compile_model] enable_gtpin get_property failed: "
             //      << e.what() << std::endl;

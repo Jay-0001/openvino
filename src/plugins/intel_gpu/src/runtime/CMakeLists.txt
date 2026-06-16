@@ -16,10 +16,25 @@ file(GLOB LIBRARY_SOURCES_OCL
     "${CMAKE_CURRENT_SOURCE_DIR}/ocl/*.cpp"
 )
 
+if(ENABLE_GTPIN_INTEGRATION)
+  file(GLOB LIBRARY_SOURCES_GTPIN
+      "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.h"
+      "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.hpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.cpp"
+  )
+endif()
+
 set(LIBRARY_SOURCES_ALL
     ${LIBRARY_SOURCES_MAIN}
     ${LIBRARY_SOURCES_OCL}
-  )
+)
+
+#conditionals not allowed within set
+if(ENABLE_GTPIN_INTEGRATION)
+    list(APPEND LIBRARY_SOURCES_ALL
+        ${LIBRARY_SOURCES_GTPIN}
+    )
+endif()
 
 file(GLOB_RECURSE SYCL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/ocl/sycl_*.cpp")
 
@@ -61,6 +76,8 @@ endif()
 #GTPin integration includes
 if(ENABLE_GTPIN_INTEGRATION)
     target_include_directories(${TARGET_NAME} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+
         "${GTPIN_INCLUDE_DIR}"
         "${GTPIN_API_INCLUDE_DIR}"
         "${GTPIN_GED_INCLUDE_DIR}"
@@ -70,16 +87,6 @@ if(ENABLE_GTPIN_INTEGRATION)
         ENABLE_GTPIN_INTEGRATION
     )
 
-    target_link_directories(${TARGET_NAME} PRIVATE
-        "${GTPIN_LIB_DIR}"
-    )
-
-    target_link_libraries(${TARGET_NAME} PRIVATE
-        gtpin
-        gtpin_core
-        iga_wrapper
-        ged
-    )
 endif()
 #End of GTPin integration logic
 
