@@ -3,10 +3,12 @@
 #include "gtpin_profiler.hpp"
 #include "gtpin_session.hpp"
 
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 
 namespace ov::intel_gpu::gtpin {
 
@@ -17,14 +19,35 @@ std::unique_ptr<GtpinProfiler> g_gtpin_profiler;
 
 }  // namespace
 
-GtpinProfiler::GtpinProfiler() = default;
+GtpinProfiler::GtpinProfiler() {
+    std::cerr << "[OV][GTPIN] GtpinProfiler constructor " << std::endl;
+}
+
+GtpinProfiler::~GtpinProfiler() {
+    std::cerr << "[OV][GTPIN] GtpinProfiler destructor" << std::endl;
+}
 
 bool GtpinProfiler::initialize() {
-    const std::string gtpin_lib_dir =
-        R"(W:\Building\GSOC\external-release-gtpin-4.7.1-win\Profilers\Lib\intel64)";
+    const char* runtime_dir = std::getenv("OV_GTPIN_RUNTIME_DIR");
+    const char* tool_path = std::getenv("OV_GTPIN_TOOL_PATH");
 
-    const std::string gtpin_tool_path =
-        R"(W:\Building\GSOC\external-release-gtpin-4.7.1-win\Profilers\Examples\intel64\funtime.dll)";
+    if (!runtime_dir || !tool_path) {
+        std::cerr
+            << "[OV][GTPIN] Required environment variables not set. "
+            << "Expected OV_GTPIN_RUNTIME_DIR and OV_GTPIN_TOOL_PATH"
+            << std::endl;
+        return false;
+    }
+
+    std::string gtpin_lib_dir(runtime_dir);
+    std::string gtpin_tool_path(tool_path);
+
+    std::cerr << "[OV][GTPIN] Runtime directory: "
+              << gtpin_lib_dir
+              << std::endl;
+    std::cerr << "[OV][GTPIN] Tool path: "
+              << gtpin_tool_path
+              << std::endl;
 
     GtpinOptions options;
 
@@ -57,16 +80,29 @@ bool GtpinProfiler::enabled() const {
 }
 
 void initialize_once() {
+    std::cerr << "[OV][GTPIN] initialize_once invoked on thread "
+              << std::this_thread::get_id()
+              << std::endl;
+
     std::call_once(g_gtpin_once, [] {
+        std::cerr << "[OV][GTPIN] call_once body entered" << std::endl;
+
         g_gtpin_profiler = std::make_unique<GtpinProfiler>();
 
         if (!g_gtpin_profiler->initialize()) {
             std::cerr << "[OV][GTPIN] initialize_once failed" << std::endl;
             g_gtpin_profiler.reset();
+            return;
         }
+
+        std::cerr << "[OV][GTPIN] call_once body completed" << std::endl;
     });
 
-    std::cout<< "[OV][GTPIN] GTPin session initialized"<< std::endl;
+    if (g_gtpin_profiler) {
+        std::cerr << "[OV][GTPIN] GTPin session available" << std::endl;
+    } else {
+        std::cerr << "[OV][GTPIN] GTPin session unavailable" << std::endl;
+    }
 }
 
 }  // namespace ov::intel_gpu::gtpin

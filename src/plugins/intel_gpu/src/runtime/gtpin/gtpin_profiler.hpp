@@ -10,7 +10,8 @@ class GtpinSession;
 class GtpinProfiler {
 public:
     GtpinProfiler();
-
+    ~GtpinProfiler();
+    
     bool initialize();
 
     bool enabled() const;

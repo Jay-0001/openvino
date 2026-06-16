@@ -22,7 +22,6 @@
 #include <set>
 #include <stdexcept>
 #include <algorithm>
-#include <mutex>
 
 #if defined(_WIN32)
 # ifndef NOMINMAX
@@ -269,9 +268,6 @@ bool engine::get_enable_large_allocations() const {
 std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type, runtime_types runtime_type, const device::ptr device) {
     std::shared_ptr<cldnn::engine> ret;
 
-    std::cout << "[Runtime-GTPin] before create_ocl_engine" << std::endl;
-
-
     switch (engine_type) {
 #ifdef OV_GPU_WITH_SYCL_RT
     case engine_types::sycl:
@@ -297,8 +293,10 @@ std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type, runtime_
         throw std::runtime_error("Invalid engine type");
     }
 
-
-    std::cout << "[Runtime-GTPin] after create_ocl_engine" << std::endl;
+    //J--engine diagnostics
+    static std::atomic<uint32_t> engine_counter{0};
+    auto id = ++engine_counter;
+    std::cerr<< "[OV][ENGINE] create_ocl_engine invoked #"<< id<< std::endl;
 
 
     const auto& info = device->get_info();
@@ -312,6 +310,8 @@ std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type, runtime_
 
 std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type, runtime_types runtime_type) {
     device_query query(engine_type, runtime_type, nullptr, nullptr, 0, -1, true);
+
+    //the earliest OCL point of contact?
     auto devices = query.get_available_devices();
 
     OPENVINO_ASSERT(!devices.empty(), "[GPU] Can't create ", engine_type, " engine for ", runtime_type, " runtime as no suitable devices are found\n"

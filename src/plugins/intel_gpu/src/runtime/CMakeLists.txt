@@ -16,17 +16,25 @@ file(GLOB LIBRARY_SOURCES_OCL
     "${CMAKE_CURRENT_SOURCE_DIR}/ocl/*.cpp"
 )
 
-file(GLOB LIBRARY_SOURCES_GTPIN
-    "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.cpp"
-)
+if(ENABLE_GTPIN_INTEGRATION)
+  file(GLOB LIBRARY_SOURCES_GTPIN
+      "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.h"
+      "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.hpp"
+      "${CMAKE_CURRENT_SOURCE_DIR}/gtpin/*.cpp"
+  )
+endif()
 
 set(LIBRARY_SOURCES_ALL
     ${LIBRARY_SOURCES_MAIN}
     ${LIBRARY_SOURCES_OCL}
-    ${LIBRARY_SOURCES_GTPIN}
-  )
+)
+
+#conditionals not allowed within set
+if(ENABLE_GTPIN_INTEGRATION)
+    list(APPEND LIBRARY_SOURCES_ALL
+        ${LIBRARY_SOURCES_GTPIN}
+    )
+endif()
 
 file(GLOB LIBRARY_SOURCES_SYCL
     "${CMAKE_CURRENT_SOURCE_DIR}/sycl/*.h"

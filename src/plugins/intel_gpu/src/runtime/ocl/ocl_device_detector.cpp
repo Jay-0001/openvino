@@ -11,7 +11,6 @@
 #    include "gtpin/gtpin_profiler.hpp"
 #include <iostream>
 #include <sstream>
-#include <mutex>
 #endif
 
 #include <string>
@@ -33,9 +32,6 @@ static const char create_device_error_msg[] =
 
 void initialize_gtpin_once_before_ocl_runtime() {
 #ifdef ENABLE_GTPIN_INTEGRATION
-    std::cout
-    << "[GTPIN] Initializing before OpenCL platform discovery"
-    << std::endl;
     ov::intel_gpu::gtpin::initialize_once();
 #endif
 }
@@ -135,6 +131,16 @@ static std::vector<cl::Device> getSubDevices(cl::Device& rootDevice) {
     return subDevices;
 }
 
+std::vector<device::ptr> ocl_device_detector::sort_devices(const std::vector<device::ptr>& devices_list) {
+    std::vector<device::ptr> sorted_list = devices_list;
+    std::stable_sort(sorted_list.begin(), sorted_list.end(), [](device::ptr d1,  device::ptr d2) {
+        return get_device_priority(d1->get_info()) < get_device_priority(d2->get_info());
+    });
+
+    return sorted_list;
+}
+
+//J -- The connection point -- engine to device query to device detector
 std::map<std::string, device::ptr> ocl_device_detector::get_available_devices(void* user_context,
                                                                               void* user_device,
                                                                               int ctx_device_id,
@@ -191,9 +197,10 @@ std::map<std::string, device::ptr> ocl_device_detector::get_available_devices(vo
 }
 
 std::vector<device::ptr> ocl_device_detector::create_device_list() const {
-    //newer orchestration point
+    //==================newer orchestration point
+    std::cerr<< "[GTPIN] Initializing before OpenCL platform discovery"<< std::endl;
     initialize_gtpin_once_before_ocl_runtime();
-
+    //=======================================
     cl_uint num_platforms = 0;
     // Get number of platforms available
     cl_int error_code = clGetPlatformIDs(0, nullptr, &num_platforms);
@@ -250,9 +257,6 @@ std::vector<device::ptr> ocl_device_detector::create_device_list_from_user_conte
 }
 
 std::vector<device::ptr> ocl_device_detector::create_device_list_from_user_device(void* user_device) const {
-    //newer orchestration point
-    initialize_gtpin_once_before_ocl_runtime();
-
     cl_uint num_platforms = 0;
     // Get number of platforms availible
     cl_int error_code = clGetPlatformIDs(0, nullptr, &num_platforms);
