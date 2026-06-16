@@ -1,3 +1,4 @@
+//temporary version -- not original
 // Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -27,6 +28,15 @@
 #  define NOMINMAX
 # endif
 # include <windows.h>
+
+
+#ifdef ENABLE_GTPIN_INTEGRATION
+    #include "gtpin_api.h"
+    #include <iostream>
+    #include <mutex>
+    using namespace gtpin;
+#endif
+
 
 static size_t get_cpu_ram_size() {
     MEMORYSTATUSEX s {};
@@ -260,8 +270,291 @@ bool engine::get_enable_large_allocations() const {
     return enable_large_allocations;
 }
 
+
+// Temporary GTPin runtime + external tool DLL experiment.
+// Goal:
+//   1. Use the already-linked GTPin runtime to obtain IGtCore.
+//   2. Load the external funtime sample tool DLL directly.
+//   3. Resolve and call GTPin_Entry so the tool registers itself.
+//   4. Keep the tool DLL loaded for the rest of the process lifetime.
+#ifdef ENABLE_GTPIN_INTEGRATION
+
+namespace {
+
+static std::once_flag g_gtpin_once;
+static gtpin::IGtCore* g_gtpin_core = nullptr;
+static HMODULE g_funtime_tool = nullptr;
+
+std::string windows_error_message(DWORD error) {
+    if (error == 0) {
+        return "No error";
+    }
+
+    LPSTR buffer = nullptr;
+    DWORD size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+                                    FORMAT_MESSAGE_FROM_SYSTEM |
+                                    FORMAT_MESSAGE_IGNORE_INSERTS,
+                                nullptr,
+                                error,
+                                MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                                reinterpret_cast<LPSTR>(&buffer),
+                                0,
+                                nullptr);
+
+    std::string message = buffer ? std::string(buffer, size) : "Unknown Windows loader error";
+    if (buffer) {
+        LocalFree(buffer);
+    }
+    return message;
+}
+
+bool file_exists_w(const wchar_t* path) {
+    DWORD attrs = GetFileAttributesW(path);
+    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+bool directory_exists_w(const wchar_t* path) {
+    DWORD attrs = GetFileAttributesW(path);
+    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+void print_current_directory() {
+    wchar_t buffer[MAX_PATH] = {};
+    DWORD size = GetCurrentDirectoryW(MAX_PATH, buffer);
+    if (size == 0 || size >= MAX_PATH) {
+        std::cout << "[GTPIN] Failed to read current directory. Error "
+                  << GetLastError() << ": " << windows_error_message(GetLastError()) << std::endl;
+        return;
+    }
+
+    std::wcout << L"[GTPIN] Current directory: " << buffer << std::endl;
+}
+
+void print_module_path(const wchar_t* module_name) {
+    HMODULE module = GetModuleHandleW(module_name);
+
+    std::wcout << L"[GTPIN] GetModuleHandleW(" << module_name << L") = "
+               << module << std::endl;
+
+    if (!module) {
+        return;
+    }
+
+    wchar_t module_path[MAX_PATH] = {};
+    DWORD size = GetModuleFileNameW(module, module_path, MAX_PATH);
+    if (size == 0 || size >= MAX_PATH) {
+        std::cout << "[GTPIN] Failed to read module path for module. Error "
+                  << GetLastError() << ": " << windows_error_message(GetLastError()) << std::endl;
+        return;
+    }
+
+    std::wcout << L"[GTPIN] Module path: " << module_path << std::endl;
+}
+
+void print_path_hint() {
+    DWORD required = GetEnvironmentVariableW(L"PATH", nullptr, 0);
+    std::wcout << L"[GTPIN] PATH length: " << required << std::endl;
+
+    if (required == 0 || required > 32767) {
+        return;
+    }
+
+    std::wstring path(required, L'\0');
+    GetEnvironmentVariableW(L"PATH", path.data(), required);
+
+    // Avoid dumping the entire PATH into the sample output.
+    std::wcout << L"[GTPIN] PATH prefix: " << path.substr(0, 800) << std::endl;
+}
+
+bool add_dll_search_directory(const wchar_t* dir) {
+    std::wcout << L"[GTPIN] Adding DLL search directory via SetDllDirectoryW: "
+               << dir << std::endl;
+
+    if (!SetDllDirectoryW(dir)) {
+        DWORD error = GetLastError();
+        std::cout << "[GTPIN] SetDllDirectoryW failed. Error "
+                  << error << ": " << windows_error_message(error) << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool initialize_gtpin_runtime() {
+    if (g_gtpin_core) {
+        std::cout << "[GTPIN] Runtime already initialized. Core="
+                  << g_gtpin_core << std::endl;
+        return true;
+    }
+
+    std::cout << "[GTPIN] Initializing runtime through already-linked GTPin_GetCore()" << std::endl;
+
+    g_gtpin_core = GTPin_GetCore();
+
+    std::cout << "[GTPIN] GTPin_GetCore returned core="
+              << g_gtpin_core << std::endl;
+
+    if (!g_gtpin_core) {
+        std::cout << "[GTPIN] Runtime initialization failed: core is null" << std::endl;
+        return false;
+    }
+
+    print_module_path(L"gtpin.dll");
+    print_module_path(L"gtpin_core.dll");
+    print_module_path(L"iga_wrapper.dll");
+    print_module_path(L"ged.dll");
+
+    return true;
+}
+
+bool load_gtpin_tool_dll() {
+    if (!g_gtpin_core) {
+        std::cout << "[GTPIN] Cannot load tool: runtime core is null" << std::endl;
+        return false;
+    }
+
+    if (g_funtime_tool) {
+        std::cout << "[GTPIN] funtime tool already loaded. HMODULE="
+                  << g_funtime_tool << std::endl;
+        return true;
+    }
+
+    const wchar_t* gtpin_lib_dir =
+        L"W:\\Building\\GSOC\\external-release-gtpin-4.7.1-win\\Profilers\\Lib\\intel64";
+
+    const wchar_t* funtime_dir =
+        L"W:\\Building\\GSOC\\external-release-gtpin-4.7.1-win\\Profilers\\Examples\\intel64";
+
+    const wchar_t* funtime_path =
+        L"W:\\Building\\GSOC\\external-release-gtpin-4.7.1-win\\Profilers\\Examples\\intel64\\funtime.dll";
+
+    std::cout << "[GTPIN] === Tool DLL loading diagnostics ===" << std::endl;
+
+    print_current_directory();
+    print_path_hint();
+
+    std::wcout << L"[GTPIN] GTPin lib dir: " << gtpin_lib_dir
+               << L" exists=" << (directory_exists_w(gtpin_lib_dir) ? L"YES" : L"NO")
+               << std::endl;
+
+    std::wcout << L"[GTPIN] funtime dir: " << funtime_dir
+               << L" exists=" << (directory_exists_w(funtime_dir) ? L"YES" : L"NO")
+               << std::endl;
+
+    std::wcout << L"[GTPIN] funtime DLL: " << funtime_path
+               << L" exists=" << (file_exists_w(funtime_path) ? L"YES" : L"NO")
+               << std::endl;
+
+    print_module_path(L"gtpin.dll");
+
+    // funtime.dll depends on gtpin.dll + KERNEL32.dll.
+    // Make both the runtime directory and the tool directory discoverable for the Windows loader.
+    add_dll_search_directory(gtpin_lib_dir);
+    add_dll_search_directory(funtime_dir);
+
+    SetLastError(0);
+
+    std::wcout << L"[GTPIN] Loading funtime with LoadLibraryExW: "
+               << funtime_path << std::endl;
+
+    g_funtime_tool = LoadLibraryExW(funtime_path, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+
+    if (!g_funtime_tool) {
+        DWORD error = GetLastError();
+
+        std::cout << "[GTPIN] LoadLibraryExW(funtime.dll) failed." << std::endl;
+        std::cout << "[GTPIN] Error code: " << error << std::endl;
+        std::cout << "[GTPIN] Error message: " << windows_error_message(error) << std::endl;
+
+        if (error == ERROR_MOD_NOT_FOUND) {
+            std::cout << "[GTPIN] Interpretation: target DLL path is wrong, or a dependent DLL "
+                         "such as gtpin.dll was not found by the Windows loader."
+                      << std::endl;
+        } else if (error == ERROR_BAD_EXE_FORMAT) {
+            std::cout << "[GTPIN] Interpretation: architecture mismatch, e.g. x86 DLL in x64 process."
+                      << std::endl;
+        } else if (error == ERROR_PROC_NOT_FOUND) {
+            std::cout << "[GTPIN] Interpretation: dependency was found, but a required export was missing."
+                      << std::endl;
+        }
+
+        return false;
+    }
+
+    std::cout << "[GTPIN] funtime.dll loaded successfully. HMODULE="
+              << g_funtime_tool << std::endl;
+
+    using GTPinEntryFn = void (*)(int, const char**);
+
+    SetLastError(0);
+
+    auto entry = reinterpret_cast<GTPinEntryFn>(
+        GetProcAddress(g_funtime_tool, "GTPin_Entry"));
+
+    if (!entry) {
+        DWORD error = GetLastError();
+
+        std::cout << "[GTPIN] Failed to resolve GTPin_Entry." << std::endl;
+        std::cout << "[GTPIN] Error code: " << error << std::endl;
+        std::cout << "[GTPIN] Error message: " << windows_error_message(error) << std::endl;
+
+        return false;
+    }
+
+    std::cout << "[GTPIN] Resolved GTPin_Entry="
+              << reinterpret_cast<void*>(entry) << std::endl;
+
+
+    std::cout << "[GTPIN] Calling funtime GTPin_Entry(argc=0, argv=nullptr)" << std::endl;
+
+    //failing here!!
+    entry(0, nullptr);
+
+    std::cout << "[GTPIN] GTPin_Entry returned successfully" << std::endl;
+
+    return true;
+}
+
+void initialize_gtpin_once() {
+    std::call_once(g_gtpin_once, [] {
+        std::cout << "[GTPIN] === Embedded runtime/tool experiment start ===" << std::endl;
+
+        if (!initialize_gtpin_runtime()) {
+            std::cout << "[GTPIN] Runtime initialization failed" << std::endl;
+            return;
+        }
+
+        if (!load_gtpin_tool_dll()) {
+            std::cout << "[GTPIN] Tool loading failed" << std::endl;
+            return;
+        }
+
+        std::cout << "[GTPIN] Runtime + external funtime tool initialization completed"
+                  << std::endl;
+    });
+}
+
+}  // namespace
+
+#endif
+
+
+
+
+
+//J--Is this the GPU runtime creation spot?
 std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type, runtime_types runtime_type, const device::ptr device) {
     std::shared_ptr<cldnn::engine> ret;
+
+//GTPin tool registration
+std::cout << "[Runtime-GTPin] before GTPin registration" << std::endl;
+#ifdef ENABLE_GTPIN_INTEGRATION
+    initialize_gtpin_once();
+#endif
+    std::cout << "[Runtime-GTPin] after GTPin registration" << std::endl;
+    std::cout << "[Runtime-GTPin] before create_ocl_engine" << std::endl;
+
+
     switch (engine_type) {
 #ifdef OV_GPU_WITH_SYCL_RT
     case engine_types::sycl:
@@ -286,10 +579,19 @@ std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type, runtime_
     default:
         throw std::runtime_error("Invalid engine type");
     }
+
+
+    std::cout << "[Runtime-GTPin] after create_ocl_engine" << std::endl;
+
+
     const auto& info = device->get_info();
     GPU_DEBUG_INFO << "Selected Device: " << info.dev_name << std::endl;
     return ret;
 }
+
+
+//The second candidate before the device_query
+
 
 std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type, runtime_types runtime_type) {
     device_query query(engine_type, runtime_type, nullptr, nullptr, 0, -1, true);
