@@ -8,9 +8,9 @@
 #include "ocl_common.hpp"
 
 #ifdef ENABLE_GTPIN_INTEGRATION
-#    include "gtpin/gtpin_profiler.hpp"
-#include <iostream>
-#include <sstream>
+#   include "gtpin/gtpin_profiler.hpp"
+#   include <iostream>
+#   include <sstream>
 #endif
 
 #include <string>
@@ -198,8 +198,8 @@ std::map<std::string, device::ptr> ocl_device_detector::get_available_devices(vo
 
 std::vector<device::ptr> ocl_device_detector::create_device_list() const {
     //==================newer orchestration point
-    std::cerr<< "[GTPIN] Initializing before OpenCL platform discovery"<< std::endl;
-    initialize_gtpin_once_before_ocl_runtime();
+    //std::cerr<< "[GTPIN] Initializing before OpenCL platform discovery"<< std::endl;
+    //initialize_gtpin_once_before_ocl_runtime();
     //=======================================
     cl_uint num_platforms = 0;
     // Get number of platforms available
