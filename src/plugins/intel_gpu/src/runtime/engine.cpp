@@ -29,12 +29,6 @@
 # endif
 # include <windows.h>
 
-#ifdef ENABLE_GTPIN_INTEGRATION
-#   include "gtpin/gtpin_profiler.hpp"
-#   include <iostream>
-#   include <sstream>
-#endif
-
 
 static size_t get_cpu_ram_size() {
     MEMORYSTATUSEX s {};
@@ -273,14 +267,6 @@ bool engine::get_enable_large_allocations() const {
 //J--Is this the GPU runtime creation spot?
 std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type, runtime_types runtime_type, const device::ptr device) {
     std::shared_ptr<cldnn::engine> ret;
-
-    #ifdef ENABLE_GTPIN_INTEGRATION
-    std::cerr
-        << "[GTPIN-EXPERIMENT] Initializing from engine::create()"
-        << std::endl;
-
-    ov::intel_gpu::gtpin::initialize_once();
-    #endif
 
     switch (engine_type) {
 #ifdef OV_GPU_WITH_SYCL_RT
