@@ -250,9 +250,9 @@ Plugin::Plugin() {
 
     std::cout << "[OV] Plugin::Plugin begin" << std::endl;
     //std::cout << "[OV] before GTPin registration" << std::endl;
-    std::cout << "Attaching Process Explorer now..." << std::endl;
+    //std::cout << "Attaching Process Explorer now..." << std::endl;
     //sleep logic for process explorer
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+    //std::this_thread::sleep_for(std::chrono::seconds(10));
     
     // Set OCL runtime which should be always available
 #ifdef OV_GPU_WITH_SYCL

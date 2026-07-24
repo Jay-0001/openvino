@@ -23,6 +23,7 @@
 #include <memory>
 #include <list>
 #include <set>
+#include <fstream>
 
 namespace ov::intel_gpu {
 class OutputMemoryBlock;
@@ -292,9 +293,15 @@ private:
                                   const std::shared_ptr<memory_state::releasable_variable>& releasable_var,
                                   bool transpose_required);
     void dump_memory_pool(std::string dump_path, int64_t curr_iter);
+    // gtpin integration -- correlation
+    void init_dispatch_dump();
+    // gtpin integration -- correlation
+    void dump_dispatch_row(const primitive_inst& inst, size_t exec_index);
 
 #ifdef GPU_DEBUG_CONFIG
     mutable int64_t iteration = 0;
+    // gtpin integration -- correlation
+    std::ofstream _dispatch_dump_stream;
     friend class NetworkDebugHelper;
     friend class NodeDebugHelper;
 #endif

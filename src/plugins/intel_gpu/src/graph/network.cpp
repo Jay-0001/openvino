@@ -141,6 +141,7 @@ void dump_perf_data_raw(std::string dump_path, bool per_iter_mode, const std::li
     }
 }
 
+<<<<<<< HEAD
 // Dumps a per-primitive averaged execution time CSV with the same schema as
 // benchmark_app --report_type average_counters and the CPU plugin's
 // OV_CPU_AVERAGE_COUNTERS feature, so that aggregate-average-counters.py and
@@ -210,6 +211,24 @@ void dump_average_counters(std::string dump_path,
 
     const auto total_ms = to_ms(total_us);
     file << "Total;;;;" << total_ms << ";" << total_ms << ";\n";
+=======
+// gtpin integration -- correlation
+std::string csv_escape(const std::string& value) {
+    if (value.find_first_of("\",\n\r") == std::string::npos) {
+        return value;
+    }
+
+    std::string escaped = "\"";
+    for (char ch : value) {
+        if (ch == '"') {
+            escaped += "\"\"";
+        } else {
+            escaped += ch;
+        }
+    }
+    escaped += "\"";
+    return escaped;
+>>>>>>> ac82f92238 (Primitive Execution Order Dump)
 }
 
 #else
@@ -249,6 +268,8 @@ network::network(program::ptr program, stream::ptr stream, bool is_internal, boo
     validate_primitives();
     preallocate_shape_info_buffers();
     add_default_output_chains();
+    // gtpin integration -- correlation
+    init_dispatch_dump();
 }
 
 network::network(program::ptr program, bool is_internal, bool is_primary_stream)
@@ -949,6 +970,7 @@ void network::execute_impl(const std::vector<event::ptr>& events) {
     const bool needs_flushing = _is_dynamic;
     const size_t flush_frequency = needs_flushing ? 16 : 0;
     size_t executed_prims = 0;
+    size_t exec_index = 0;
 
     for (auto& inst : _exec_order) {
         NODE_DEBUG(*inst);
@@ -962,8 +984,11 @@ void network::execute_impl(const std::vector<event::ptr>& events) {
 
         inst->prepare_primitive();
         inst->execute();
+        // gtpin integration -- correlation
+        dump_dispatch_row(*inst, exec_index);
 
         executed_prims++;
+        exec_index++;
         if (needs_flushing && executed_prims % flush_frequency == 0)
             get_stream().flush();
     }
@@ -977,6 +1002,52 @@ void network::execute_impl(const std::vector<event::ptr>& events) {
     for (auto& inst : _exec_order) {
         inst->reset_flags();
     }
+}
+
+void network::init_dispatch_dump() {
+#ifdef GPU_DEBUG_CONFIG
+    // gtpin integration -- correlation
+    const std::string dump_path = GPU_DEBUG_VALUE_OR(get_config().get_dump_dispatch_map_path(), "");
+    if (dump_path.empty()) {
+        return;
+    }
+
+    _dispatch_dump_stream.open(dump_path + "/dispatch_map_raw" + std::to_string(net_id) + ".csv", std::ios::out | std::ios::trunc);
+    if (_dispatch_dump_stream.is_open()) {
+        _dispatch_dump_stream << "net_id,iteration,exec_index,primitive_id,primitive_type,implementation,kernel_entry,batch_hash\n";
+    }
+#endif
+}
+
+void network::dump_dispatch_row(const primitive_inst& inst, size_t exec_index) {
+#ifdef GPU_DEBUG_CONFIG
+    // gtpin integration -- correlation
+    if (!_dispatch_dump_stream.is_open()) {
+        return;
+    }
+
+    std::string implementation;
+    std::string kernel_entry;
+    std::string batch_hash;
+    if (const auto* impl = inst.get_impl()) {
+        implementation = impl->get_kernel_name();
+        const auto kernel_dump_info = impl->get_kernels_dump_info();
+        batch_hash = kernel_dump_info.first;
+        kernel_entry = kernel_dump_info.second;
+    }
+
+    _dispatch_dump_stream << net_id << ","
+                          << get_current_iteration_num() << ","
+                          << exec_index << ","
+                          << csv_escape(inst.id()) << ","
+                          << csv_escape(inst.desc()->type_string()) << ","
+                          << csv_escape(implementation) << ","
+                          << csv_escape(kernel_entry) << ","
+                          << csv_escape(batch_hash) << "\n";
+#else
+    OPENVINO_UNUSED(inst);
+    OPENVINO_UNUSED(exec_index);
+#endif
 }
 
 std::vector<primitive_id> network::get_input_ids() const {
