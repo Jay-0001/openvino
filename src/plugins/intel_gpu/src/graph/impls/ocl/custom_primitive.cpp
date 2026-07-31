@@ -179,9 +179,11 @@ struct custom_gpu_primitive_impl : typed_primitive_impl<custom_gpu_primitive> {
         for (size_t i = 0; i < instance.outputs_memory_count(); i++) {
             args.outputs.push_back(instance.output_memory_ptr(i));
         }
-        for (const auto& buf : instance.get_intermediates_memories()) {
-            args.intermediates.push_back(buf);
-        }
+
+        // gtpin integration -- correlation
+        const auto kernel_entry = cl_kernel->kernelString ? cl_kernel->kernelString->entry_point : std::string();
+        // gtpin integration -- correlation
+        instance.get_network().dump_dispatch_row(instance, 0, kernel_entry);
         return stream.enqueue_kernel(*_kernels.front(), cl_kernel.get()->params, args, events, instance.is_output());
     }
 

@@ -1495,8 +1495,10 @@ public:
             GPU_DEBUG_TRACE_DETAIL << "\tlws = {" << local[0] << ", " << local[1] << ", " << local[2] << "}" << std::endl;
         }
 
-        kernel_dump_info.add_entry_point(stage.kernel->get_id());
-
+        // gtpin integration -- correlation
+        const auto kernel_entry = stage.kd.code ? stage.kd.code->entry_point : std::string();
+        // gtpin integration -- correlation
+        instance.get_network().dump_dispatch_row(instance, static_cast<size_t>(stage_idx), kernel_entry);
         return stream.enqueue_kernel(*stage.kernel, desc, {}, events, needs_completion_event);
     }
 

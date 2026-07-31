@@ -49,6 +49,7 @@
 #include <map>
 #include <functional>
 #include <fstream>
+#include <sstream>
 
 #include "debug_helper.hpp"
 #ifdef GPU_DEBUG_CONFIG
@@ -229,6 +230,17 @@ std::string csv_escape(const std::string& value) {
     escaped += "\"";
     return escaped;
 >>>>>>> ac82f92238 (Primitive Execution Order Dump)
+}
+
+// gtpin integration -- correlation
+std::vector<std::string> split_kernel_entries(const std::string& kernel_entries) {
+    std::istringstream stream(kernel_entries);
+    std::vector<std::string> entries;
+    std::string entry;
+    while (stream >> entry) {
+        entries.push_back(entry);
+    }
+    return entries;
 }
 
 #else
@@ -970,7 +982,10 @@ void network::execute_impl(const std::vector<event::ptr>& events) {
     const bool needs_flushing = _is_dynamic;
     const size_t flush_frequency = needs_flushing ? 16 : 0;
     size_t executed_prims = 0;
-    size_t exec_index = 0;
+#ifdef GPU_DEBUG_CONFIG
+    // gtpin integration -- correlation
+    _dispatch_index = 0;
+#endif
 
     for (auto& inst : _exec_order) {
         NODE_DEBUG(*inst);
@@ -984,11 +999,8 @@ void network::execute_impl(const std::vector<event::ptr>& events) {
 
         inst->prepare_primitive();
         inst->execute();
-        // gtpin integration -- correlation
-        dump_dispatch_row(*inst, exec_index);
 
         executed_prims++;
-        exec_index++;
         if (needs_flushing && executed_prims % flush_frequency == 0)
             get_stream().flush();
     }
@@ -1014,12 +1026,12 @@ void network::init_dispatch_dump() {
 
     _dispatch_dump_stream.open(dump_path + "/dispatch_map_raw" + std::to_string(net_id) + ".csv", std::ios::out | std::ios::trunc);
     if (_dispatch_dump_stream.is_open()) {
-        _dispatch_dump_stream << "net_id,iteration,exec_index,primitive_id,primitive_type,implementation,kernel_entry,batch_hash\n";
+        _dispatch_dump_stream << "net_id,iteration,dispatch_index,primitive_id,primitive_type,implementation,kernel_index,kernel_entry,batch_hash\n";
     }
 #endif
 }
 
-void network::dump_dispatch_row(const primitive_inst& inst, size_t exec_index) {
+void network::dump_dispatch_row(const primitive_inst& inst, size_t kernel_index, const std::string& kernel_entry_override) {
 #ifdef GPU_DEBUG_CONFIG
     // gtpin integration -- correlation
     if (!_dispatch_dump_stream.is_open()) {
@@ -1029,24 +1041,73 @@ void network::dump_dispatch_row(const primitive_inst& inst, size_t exec_index) {
     std::string implementation;
     std::string kernel_entry;
     std::string batch_hash;
+    std::string metadata_source = "none";
     if (const auto* impl = inst.get_impl()) {
         implementation = impl->get_kernel_name();
         const auto kernel_dump_info = impl->get_kernels_dump_info();
         batch_hash = kernel_dump_info.first;
-        kernel_entry = kernel_dump_info.second;
+        if (!kernel_entry_override.empty()) {
+            kernel_entry = kernel_entry_override;
+            metadata_source = "per_dispatch_override";
+        } else {
+            const auto kernel_entries = split_kernel_entries(kernel_dump_info.second);
+            if (kernel_index < kernel_entries.size()) {
+                kernel_entry = kernel_entries[kernel_index];
+                metadata_source = "runtime_impl_indexed";
+            } else {
+                kernel_entry = kernel_dump_info.second;
+                if (!kernel_entry.empty() || !batch_hash.empty()) {
+                    metadata_source = "runtime_impl_raw";
+                }
+            }
+        }
+        if ((!kernel_entry.empty() || !batch_hash.empty()) && metadata_source == "none") {
+            metadata_source = "runtime_impl";
+        }
+    }
+
+    if (kernel_entry.empty() && inst.has_node()) {
+        if (const auto* selected_impl = inst.get_node().get_selected_impl()) {
+            const auto kernel_dump_info = selected_impl->get_kernels_dump_info();
+            if (batch_hash.empty()) {
+                batch_hash = kernel_dump_info.first;
+            }
+            if (!kernel_entry_override.empty()) {
+                kernel_entry = kernel_entry_override;
+            } else {
+                const auto kernel_entries = split_kernel_entries(kernel_dump_info.second);
+                kernel_entry = kernel_index < kernel_entries.size() ? kernel_entries[kernel_index] : kernel_dump_info.second;
+            }
+            if (!kernel_entry.empty() || !batch_hash.empty()) {
+                metadata_source = "selected_impl_fallback";
+                GPU_DEBUG_INFO << "[dispatch_map] Fallback kernel metadata for primitive " << inst.id()
+                               << " from selected_impl. impl=" << implementation
+                               << " kernel_entry=" << kernel_entry
+                               << " batch_hash=" << batch_hash << std::endl;
+            }
+        }
+    }
+
+    if (kernel_entry.empty()) {
+        GPU_DEBUG_INFO << "[dispatch_map] Missing kernel_entry for primitive " << inst.id()
+                       << " impl=" << implementation
+                       << " batch_hash=" << batch_hash
+                       << " source=" << metadata_source << std::endl;
     }
 
     _dispatch_dump_stream << net_id << ","
                           << get_current_iteration_num() << ","
-                          << exec_index << ","
+                          << _dispatch_index++ << ","
                           << csv_escape(inst.id()) << ","
                           << csv_escape(inst.desc()->type_string()) << ","
                           << csv_escape(implementation) << ","
+                          << kernel_index << ","
                           << csv_escape(kernel_entry) << ","
                           << csv_escape(batch_hash) << "\n";
 #else
     OPENVINO_UNUSED(inst);
-    OPENVINO_UNUSED(exec_index);
+    OPENVINO_UNUSED(kernel_index);
+    OPENVINO_UNUSED(kernel_entry_override);
 #endif
 }
 

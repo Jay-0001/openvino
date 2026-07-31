@@ -81,6 +81,8 @@ struct PrimitiveImplOCL : public cldnn::primitive_impl {
         copy->_weights_reorder_params = impl->_weights_reorder_params;
         copy->_kernel_name = impl->_kernel_name;
         copy->_is_dynamic = impl->_is_dynamic;
+        // gtpin integration -- correlation
+        copy->kernel_dump_info = impl->kernel_dump_info;
 
         for (size_t i = 0; i < copy->_stages.size(); i++) {
             copy->_stages[i]->kd = impl->_stages[i]->kd;
@@ -260,8 +262,17 @@ struct PrimitiveImplOCL : public cldnn::primitive_impl {
         GPU_DEBUG_TRACE_DETAIL << "Enqueue stage " << stage.kernel->get_id() << " : gws=[" << gws[0] << ", " << gws[1] << ", " << gws[2] << "] " << "lws=["
                                << lws[0] << ", " << lws[1] << ", " << lws[2] << "]" << (needs_completion_event ? " has_completion_event=true" : "") << '\n';
 
-        kernel_dump_info.add_entry_point(stage.kernel->get_id());
-
+        // gtpin integration -- correlation
+        size_t kernel_index = 0;
+        for (; kernel_index < _order.size(); ++kernel_index) {
+            if (_stages[_order[kernel_index]] == &stage) {
+                break;
+            }
+        }
+        // gtpin integration -- correlation
+        const auto kernel_entry = stage.kd.code ? stage.kd.code->entry_point : std::string();
+        // gtpin integration -- correlation
+        instance.get_network().dump_dispatch_row(instance, kernel_index, kernel_entry);
         return stream.enqueue_kernel(*stage.kernel, params, {}, events, needs_completion_event);
     }
 

@@ -61,6 +61,8 @@ struct typed_primitive_impl_ocl : public typed_primitive_impl<PType> {
     : typed_primitive_impl<PType>(other._weights_reorder_params, other._kernel_name, other._is_dynamic)
     , _kernel_data(other._kernel_data)
     , _kernels({}) {
+        // gtpin integration -- correlation
+        kernel_dump_info = other.kernel_dump_info;
         _kernels.reserve(other._kernels.size());
         for (size_t k = 0; k < other._kernels.size(); ++k) {
             _kernels.emplace_back(other._kernels[k]->clone(other.can_share_kernels));
@@ -279,6 +281,11 @@ protected:
                                    << "lws=[" << lws[0] << ", " << lws[1] << ", " << lws[2] << "]"
                                    << (needs_completion_event ? " has_completion_event=true" : "") << std::endl;
 
+            // gtpin integration -- correlation
+            const auto kernel_entry = _kernel_data.kernels[kd_idx].code.kernelString ? _kernel_data.kernels[kd_idx].code.kernelString->entry_point
+                                                                                      : std::string();
+            // gtpin integration -- correlation
+            instance.get_network().dump_dispatch_row(instance, kd_idx, kernel_entry);
             auto ev = stream.enqueue_kernel(*_kernels[kd_idx], params, args, tmp_events, needs_completion_event);
             if (_kernel_data.needs_sub_kernels_sync) {
                 tmp_events = {ev};

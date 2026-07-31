@@ -45,6 +45,8 @@ struct multi_stage_primitive : public typed_primitive_impl<PType> {
         : typed_primitive_impl<PType>()
         , _kernels_data(other._kernels_data)
         , _kernels({}) {
+        // gtpin integration -- correlation
+        kernel_dump_info = other.kernel_dump_info;
         _kernels.reserve(other._kernels.size());
         for (size_t k = 0; k < other._kernels.size(); ++k) {
             _kernels.emplace_back(other._kernels[k]->clone(other.can_share_kernels));
