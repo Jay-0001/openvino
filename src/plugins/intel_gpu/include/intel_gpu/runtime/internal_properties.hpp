@@ -151,6 +151,9 @@ static constexpr Property<bool, ov::PropertyMutability::RW> disable_onednn_post_
 static constexpr Property<std::string, PropertyMutability::RW> dump_graphs_path{"GPU_DUMP_GRAPHS_PATH"};
 static constexpr Property<std::string, ov::PropertyMutability::RW> dump_profiling_data_path{"GPU_DUMP_PROFILING_DATA_PATH"};
 static constexpr Property<std::string, ov::PropertyMutability::RW> dump_dispatch_map_path{"GPU_DUMP_DISPATCH_MAP_PATH"};
+// gsoc gtpin
+static constexpr Property<std::string, ov::PropertyMutability::RW> dump_topology_primitive_map_path{"GPU_DUMP_TOPOLOGY_PRIMITIVE_MAP_PATH"};
+// gsoc gtpin
 static constexpr Property<bool, ov::PropertyMutability::RW> dump_profiling_data_per_iter{"GPU_DUMP_PROFILING_DATA_PER_ITER"};
 static constexpr Property<std::string, ov::PropertyMutability::RW> average_counters{"GPU_AVERAGE_COUNTERS"};
 static constexpr Property<std::string, ov::PropertyMutability::RW> dump_sources_path{"GPU_DUMP_SOURCES_PATH"};

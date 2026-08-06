@@ -231,6 +231,9 @@ public:
     void set_shape_predictor(std::shared_ptr<ShapePredictor> shape_predictor) { _shape_predictor = shape_predictor; }
     // gtpin integration -- correlation
     void dump_dispatch_row(const primitive_inst& inst, size_t kernel_index, const std::string& kernel_entry = std::string());
+    // gsoc gtpin
+    void dump_topology_primitive_map() const;
+    // gsoc gtpin
 
 #ifdef GPU_DEBUG_CONFIG
     int64_t get_current_iteration_num() const { return iteration; }
@@ -297,6 +300,9 @@ private:
     void dump_memory_pool(std::string dump_path, int64_t curr_iter);
     // gtpin integration -- correlation
     void init_dispatch_dump();
+    // gsoc gtpin
+    void dump_topology_primitive_map_artifacts() const;
+    // gsoc gtpin
 
 #ifdef GPU_DEBUG_CONFIG
     mutable int64_t iteration = 0;

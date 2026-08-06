@@ -243,6 +243,44 @@ std::vector<std::string> split_kernel_entries(const std::string& kernel_entries)
     return entries;
 }
 
+// gsoc gtpin
+template <typename Container>
+std::string join_strings(const Container& values, const std::string& separator) {
+    std::ostringstream output;
+    bool first = true;
+    for (const auto& value : values) {
+        if (!first) {
+            output << separator;
+        }
+        output << value;
+        first = false;
+    }
+    return output.str();
+}
+
+struct topdown_primitive_row {
+    std::string origin_op_name;
+    std::string primitive_id;
+    std::string original_primitive_id;
+    std::string primitive_type;
+    std::string implementation;
+    int exec_id = -1;
+    bool is_input = false;
+    bool is_output = false;
+    std::vector<std::string> dependencies;
+    std::vector<std::string> users;
+    std::vector<std::string> fused_ids;
+};
+
+struct topdown_summary_row {
+    std::set<std::string> primitive_ids;
+    std::set<std::string> original_primitive_ids;
+    std::set<std::string> primitive_types;
+    std::set<std::string> implementations;
+    std::set<std::string> optimized_out_ids;
+};
+// gsoc gtpin
+
 #else
 void dump_perf_data_raw(std::string, bool per_iter_mode, const std::list<std::shared_ptr<primitive_inst>>&) {}
 void dump_average_counters(std::string, uint32_t, const std::list<std::shared_ptr<primitive_inst>>&) {}
@@ -282,6 +320,9 @@ network::network(program::ptr program, stream::ptr stream, bool is_internal, boo
     add_default_output_chains();
     // gtpin integration -- correlation
     init_dispatch_dump();
+    // gsoc gtpin
+    dump_topology_primitive_map_artifacts();
+    // gsoc gtpin
 }
 
 network::network(program::ptr program, bool is_internal, bool is_primary_stream)
@@ -1030,6 +1071,121 @@ void network::init_dispatch_dump() {
     }
 #endif
 }
+
+// gsoc gtpin
+void network::dump_topology_primitive_map_artifacts() const {
+#ifdef GPU_DEBUG_CONFIG
+    const std::string dump_path = GPU_DEBUG_VALUE_OR(get_config().get_dump_topology_primitive_map_path(), "");
+    if (dump_path.empty() || _program == nullptr || _internal) {
+        return;
+    }
+
+    const auto detail_path = dump_path + "/ov_topdown_primitive_rows" + std::to_string(net_id) + ".csv";
+    const auto summary_path = dump_path + "/ov_topdown_primitive_summary" + std::to_string(net_id) + ".csv";
+
+    std::map<std::string, program::primitive_info> primitive_info_by_id;
+    for (const auto& info : get_primitives_info()) {
+        primitive_info_by_id.emplace(info.original_id, info);
+    }
+
+    std::vector<topdown_primitive_row> rows;
+    std::map<std::string, topdown_summary_row> summary_by_origin;
+    rows.reserve(_primitives.size());
+
+    for (const auto& primitive_entry : _primitives) {
+        const auto& primitive_id = primitive_entry.first;
+        const auto& inst = primitive_entry.second;
+        const auto* prim = inst->get_node().get_primitive();
+
+        topdown_primitive_row row;
+        row.origin_op_name = prim->origin_op_name.empty() ? inst->org_id() : prim->origin_op_name;
+        row.primitive_id = primitive_id;
+        row.original_primitive_id = inst->org_id();
+        row.primitive_type = inst->desc()->type_string();
+        row.implementation = get_implementation_info(primitive_id);
+        row.is_input = std::find_if(_inputs.begin(), _inputs.end(), [&](const std::shared_ptr<primitive_inst>& input) {
+            return input->id() == primitive_id;
+        }) != _inputs.end();
+        row.is_output = std::find_if(_outputs.begin(), _outputs.end(), [&](const std::shared_ptr<primitive_inst>& output) {
+            return output->id() == primitive_id;
+        }) != _outputs.end();
+
+        const auto info_it = primitive_info_by_id.find(primitive_id);
+        if (info_it != primitive_info_by_id.end()) {
+            row.exec_id = info_it->second.exec_id;
+            row.dependencies.assign(info_it->second.c_dependencies.begin(), info_it->second.c_dependencies.end());
+            row.users.assign(info_it->second.c_users.begin(), info_it->second.c_users.end());
+            row.fused_ids.assign(info_it->second.c_fused_ids.begin(), info_it->second.c_fused_ids.end());
+        }
+
+        auto& summary = summary_by_origin[row.origin_op_name];
+        summary.primitive_ids.insert(row.primitive_id);
+        summary.original_primitive_ids.insert(row.original_primitive_id);
+        summary.primitive_types.insert(row.primitive_type);
+        summary.implementations.insert(row.implementation);
+
+        rows.push_back(std::move(row));
+    }
+
+    for (const auto& optimized_out_id : _program->get_optimized_out()) {
+        std::string origin_name = optimized_out_id;
+        const auto separator_pos = optimized_out_id.find(':');
+        if (separator_pos != std::string::npos && separator_pos + 1 < optimized_out_id.size()) {
+            origin_name = optimized_out_id.substr(separator_pos + 1);
+        }
+        summary_by_origin[origin_name].optimized_out_ids.insert(optimized_out_id);
+    }
+
+    std::sort(rows.begin(), rows.end(), [](const topdown_primitive_row& lhs, const topdown_primitive_row& rhs) {
+        if (lhs.origin_op_name != rhs.origin_op_name) {
+            return lhs.origin_op_name < rhs.origin_op_name;
+        }
+        if (lhs.exec_id != rhs.exec_id) {
+            return lhs.exec_id < rhs.exec_id;
+        }
+        return lhs.primitive_id < rhs.primitive_id;
+    });
+
+    std::ofstream detail_file(detail_path, std::ios::out | std::ios::trunc);
+    if (detail_file.is_open()) {
+        detail_file << "net_id,origin_op_name,primitive_id,original_primitive_id,primitive_type,implementation,exec_id,is_input,is_output,dependencies,users,fused_ids\n";
+        for (const auto& row : rows) {
+            detail_file << net_id << ","
+                        << csv_escape(row.origin_op_name) << ","
+                        << csv_escape(row.primitive_id) << ","
+                        << csv_escape(row.original_primitive_id) << ","
+                        << csv_escape(row.primitive_type) << ","
+                        << csv_escape(row.implementation) << ","
+                        << row.exec_id << ","
+                        << (row.is_input ? "true" : "false") << ","
+                        << (row.is_output ? "true" : "false") << ","
+                        << csv_escape(join_strings(row.dependencies, ";")) << ","
+                        << csv_escape(join_strings(row.users, ";")) << ","
+                        << csv_escape(join_strings(row.fused_ids, ";")) << "\n";
+        }
+    }
+
+    std::ofstream summary_file(summary_path, std::ios::out | std::ios::trunc);
+    if (summary_file.is_open()) {
+        summary_file << "net_id,origin_op_name,spawned_primitive_count,primitive_ids,original_primitive_ids,primitive_types,implementations,optimized_out_ids\n";
+        for (const auto& entry : summary_by_origin) {
+            summary_file << net_id << ","
+                         << csv_escape(entry.first) << ","
+                         << entry.second.primitive_ids.size() << ","
+                         << csv_escape(join_strings(entry.second.primitive_ids, ";")) << ","
+                         << csv_escape(join_strings(entry.second.original_primitive_ids, ";")) << ","
+                         << csv_escape(join_strings(entry.second.primitive_types, ";")) << ","
+                         << csv_escape(join_strings(entry.second.implementations, ";")) << ","
+                         << csv_escape(join_strings(entry.second.optimized_out_ids, ";")) << "\n";
+        }
+    }
+#endif
+}
+
+void network::dump_topology_primitive_map() const {
+    dump_topology_primitive_map_artifacts();
+}
+// gsoc gtpin
 
 void network::dump_dispatch_row(const primitive_inst& inst, size_t kernel_index, const std::string& kernel_entry_override) {
 #ifdef GPU_DEBUG_CONFIG
