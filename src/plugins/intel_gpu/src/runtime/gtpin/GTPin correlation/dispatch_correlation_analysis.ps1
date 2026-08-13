@@ -16,9 +16,14 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-$dispatchFiles = Get-ChildItem -Path $DispatchDir -Filter "dispatch_map_raw*.csv" | Sort-Object Name
+$dispatchFiles = @(Get-ChildItem -Path $DispatchDir -Filter "dispatch_map_raw*.csv" | Sort-Object Name)
 if ($dispatchFiles.Count -eq 0) {
-    throw "No dispatch_map_raw*.csv files found in $DispatchDir"
+    $unifiedDispatch = Join-Path $DispatchDir "dispatch_map.csv"
+    if (Test-Path -LiteralPath $unifiedDispatch) {
+        $dispatchFiles = @(Get-Item -LiteralPath $unifiedDispatch)
+    } else {
+        throw "No dispatch_map_raw*.csv files or unified dispatch_map.csv found in $DispatchDir"
+    }
 }
 
 $occurrencesPath = Join-Path $OfflineSummaryDir "kernel_occurrences.csv"
@@ -47,7 +52,10 @@ foreach ($file in $dispatchFiles) {
         $row | Add-Member -NotePropertyName source_file -NotePropertyValue $file.Name
         $row | Add-Member -NotePropertyName net_id_num -NotePropertyValue (Convert-ToInt $row.net_id)
         $row | Add-Member -NotePropertyName iteration_num -NotePropertyValue (Convert-ToInt $row.iteration)
-        $row | Add-Member -NotePropertyName exec_index_num -NotePropertyValue (Convert-ToInt $row.exec_index)
+        $dispatchIndexValue = if ($row.PSObject.Properties.Name -contains "dispatch_index") { $row.dispatch_index } else { $row.exec_index }
+        $globalDispatchValue = if ($row.PSObject.Properties.Name -contains "global_dispatch_id") { $row.global_dispatch_id } else { "" }
+        $row | Add-Member -NotePropertyName dispatch_index_num -NotePropertyValue (Convert-ToInt $dispatchIndexValue)
+        $row | Add-Member -NotePropertyName global_dispatch_id_num -NotePropertyValue (Convert-ToInt $globalDispatchValue)
         $dispatchRows += $row
     }
 }
@@ -88,7 +96,7 @@ foreach ($kernelEntry in ($identityByKernel.Keys | Sort-Object)) {
     $expectedOccurrences = Convert-ToInt $identity.occurrence_count
     $dispatchGroup = @()
     if ($dispatchByKernel.ContainsKey($kernelEntry)) {
-        $dispatchGroup = @($dispatchByKernel[$kernelEntry] | Sort-Object net_id_num, iteration_num, exec_index_num, primitive_id)
+        $dispatchGroup = @($dispatchByKernel[$kernelEntry] | Sort-Object net_id_num, iteration_num, dispatch_index_num, primitive_id)
     }
     $occurrenceGroup = @()
     if ($occurrencesByKernel.ContainsKey($kernelEntry)) {
@@ -102,6 +110,8 @@ foreach ($kernelEntry in ($identityByKernel.Keys | Sort-Object)) {
     $sufficiency = if ($countMatch) { "sufficient_for_order_proxy" } else { "insufficient_count_mismatch" }
     $reason = if ($countMatch) {
         "Dispatch rows and offline occurrences match in count; candidate occurrence-to-primitive mapping can be formed with (net_id, iteration, exec_index)."
+    } elseif ($dispatchCount -eq $expectedOccurrences -and @($dispatchGroup | Where-Object { $_.global_dispatch_id_num -ge 0 }).Count -gt 0) {
+        "Dispatch rows and offline occurrences match in count; unified dumps also expose a process-wide global_dispatch_id for direct dispatch alignment."
     } elseif ($dispatchCount -eq 0) {
         "Kernel entry is absent from the dispatch dump."
     } elseif ($dispatchCount -lt $expectedOccurrences) {
@@ -136,7 +146,8 @@ foreach ($kernelEntry in ($identityByKernel.Keys | Sort-Object)) {
                 implementation = $dispatchRow.implementation
                 net_id = $dispatchRow.net_id
                 iteration = $dispatchRow.iteration
-                exec_index = $dispatchRow.exec_index
+                dispatch_index = $dispatchRow.dispatch_index
+                global_dispatch_id = if ($dispatchRow.PSObject.Properties.Name -contains "global_dispatch_id") { $dispatchRow.global_dispatch_id } else { "" }
                 source_file = $dispatchRow.source_file
             }
         }
@@ -195,9 +206,9 @@ foreach ($row in $fileSummary) {
 $report.Add("")
 $report.Add("## Why Local Dispatch Indices Still Work Here")
 $report.Add("")
-$report.Add("- `exec_index` is file-local and resets per network dump, so it is not a global dispatch id.")
-$report.Add("- For this analyzer, candidate mappings use the tuple `(net_id, iteration, exec_index)` rather than `exec_index` alone.")
-$report.Add("- That is good enough for per-network ordering checks, but it remains a proxy rather than a true global launch sequence.")
+$report.Add("- `dispatch_index` is network-local and resets per execution, so it is not a global dispatch id.")
+$report.Add("- For legacy multi-file dumps, candidate mappings use the tuple `(net_id, iteration, dispatch_index)` rather than `dispatch_index` alone.")
+$report.Add("- For unified dumps, `global_dispatch_id` is the stronger primary key and should be preferred whenever present.")
 $report.Add("")
 $report.Add("## Insufficient Cases")
 $report.Add("")

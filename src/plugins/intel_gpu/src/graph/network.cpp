@@ -49,7 +49,10 @@
 #include <map>
 #include <functional>
 #include <fstream>
+#include <filesystem>
 #include <sstream>
+#include <atomic>
+#include <mutex>
 
 #include "debug_helper.hpp"
 #ifdef GPU_DEBUG_CONFIG
@@ -142,7 +145,6 @@ void dump_perf_data_raw(std::string dump_path, bool per_iter_mode, const std::li
     }
 }
 
-<<<<<<< HEAD
 // Dumps a per-primitive averaged execution time CSV with the same schema as
 // benchmark_app --report_type average_counters and the CPU plugin's
 // OV_CPU_AVERAGE_COUNTERS feature, so that aggregate-average-counters.py and
@@ -212,7 +214,8 @@ void dump_average_counters(std::string dump_path,
 
     const auto total_ms = to_ms(total_us);
     file << "Total;;;;" << total_ms << ";" << total_ms << ";\n";
-=======
+}
+
 // gtpin integration -- correlation
 std::string csv_escape(const std::string& value) {
     if (value.find_first_of("\",\n\r") == std::string::npos) {
@@ -229,7 +232,6 @@ std::string csv_escape(const std::string& value) {
     }
     escaped += "\"";
     return escaped;
->>>>>>> ac82f92238 (Primitive Execution Order Dump)
 }
 
 // gtpin integration -- correlation
@@ -242,6 +244,191 @@ std::vector<std::string> split_kernel_entries(const std::string& kernel_entries)
     }
     return entries;
 }
+
+// gsoc gtpin start
+std::string argument_type_to_string(argument_desc::Types type) {
+    switch (type) {
+        case argument_desc::Types::INPUT: return "INPUT";
+        case argument_desc::Types::OUTPUT: return "OUTPUT";
+        case argument_desc::Types::WEIGHTS: return "WEIGHTS";
+        case argument_desc::Types::BIAS: return "BIAS";
+        case argument_desc::Types::SCALE_TABLE: return "SCALE_TABLE";
+        case argument_desc::Types::SLOPE: return "SLOPE";
+        case argument_desc::Types::INTERNAL_BUFFER: return "INTERNAL_BUFFER";
+        case argument_desc::Types::SCALAR: return "SCALAR";
+        case argument_desc::Types::CELL: return "CELL";
+        case argument_desc::Types::WEIGHTS_ZERO_POINTS: return "WEIGHTS_ZERO_POINTS";
+        case argument_desc::Types::ACTIVATIONS_ZERO_POINTS: return "ACTIVATIONS_ZERO_POINTS";
+        case argument_desc::Types::COMPENSATION: return "COMPENSATION";
+        case argument_desc::Types::INPUT_OF_FUSED_PRIMITIVE: return "INPUT_OF_FUSED_PRIMITIVE";
+        case argument_desc::Types::SHAPE_INFO: return "SHAPE_INFO";
+        case argument_desc::Types::LOCAL_MEMORY_SIZE: return "LOCAL_MEMORY_SIZE";
+        default: return "UNKNOWN";
+    }
+}
+
+bool is_input_memory_argument(argument_desc::Types type) {
+    switch (type) {
+        case argument_desc::Types::INPUT:
+        case argument_desc::Types::WEIGHTS:
+        case argument_desc::Types::BIAS:
+        case argument_desc::Types::SCALE_TABLE:
+        case argument_desc::Types::SLOPE:
+        case argument_desc::Types::INTERNAL_BUFFER:
+        case argument_desc::Types::CELL:
+        case argument_desc::Types::WEIGHTS_ZERO_POINTS:
+        case argument_desc::Types::ACTIVATIONS_ZERO_POINTS:
+        case argument_desc::Types::COMPENSATION:
+        case argument_desc::Types::INPUT_OF_FUSED_PRIMITIVE:
+        case argument_desc::Types::SHAPE_INFO:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool is_output_memory_argument(argument_desc::Types type) {
+    return type == argument_desc::Types::OUTPUT;
+}
+
+memory::cptr resolve_argument_memory(const argument_desc& arg_desc, const kernel_arguments_data& args) {
+    switch (arg_desc.t) {
+        case argument_desc::Types::INPUT:
+            return arg_desc.index < args.inputs.size() ? args.inputs[arg_desc.index] : nullptr;
+        case argument_desc::Types::OUTPUT:
+            return arg_desc.index < args.outputs.size() ? args.outputs[arg_desc.index] : nullptr;
+        case argument_desc::Types::WEIGHTS:
+            return args.weights;
+        case argument_desc::Types::BIAS:
+            return args.bias;
+        case argument_desc::Types::SCALE_TABLE:
+            return args.scale_table;
+        case argument_desc::Types::SLOPE:
+            return args.slope;
+        case argument_desc::Types::INTERNAL_BUFFER:
+            return arg_desc.index < args.intermediates.size() ? args.intermediates[arg_desc.index] : nullptr;
+        case argument_desc::Types::CELL:
+            return args.cell;
+        case argument_desc::Types::WEIGHTS_ZERO_POINTS:
+            return args.weights_zero_points;
+        case argument_desc::Types::ACTIVATIONS_ZERO_POINTS:
+            return args.activations_zero_points;
+        case argument_desc::Types::COMPENSATION:
+            return args.compensation;
+        case argument_desc::Types::INPUT_OF_FUSED_PRIMITIVE:
+            return arg_desc.index < args.fused_op_inputs.size() ? args.fused_op_inputs[arg_desc.index] : nullptr;
+        case argument_desc::Types::SHAPE_INFO:
+            return args.shape_info;
+        default:
+            return nullptr;
+    }
+}
+
+std::string get_memory_identity_string(const memory::cptr& mem) {
+    if (!mem) {
+        return "";
+    }
+
+    const auto params = mem->get_internal_params();
+    const void* identity = params.mem != nullptr ? params.mem : mem->buffer_ptr();
+    if (!identity) {
+        return "";
+    }
+
+    std::ostringstream output;
+    output << identity;
+    return output.str();
+}
+
+std::string get_kernel_input_arg_addresses(const kernel_arguments_desc& args_desc, const kernel_arguments_data& args) {
+    std::vector<std::string> formatted_args;
+
+    for (size_t ordinal = 0; ordinal < args_desc.arguments.size(); ++ordinal) {
+        const auto& arg_desc = args_desc.arguments[ordinal];
+        if (!is_input_memory_argument(arg_desc.t)) {
+            continue;
+        }
+
+        const auto mem = resolve_argument_memory(arg_desc, args);
+        std::ostringstream entry;
+        entry << ordinal << ":" << argument_type_to_string(arg_desc.t) << ":" << arg_desc.index << ":"
+              << (mem ? mem->get_allocation_type() : allocation_type::unknown) << ":"
+              << get_memory_identity_string(mem);
+        formatted_args.push_back(entry.str());
+    }
+
+    std::ostringstream output;
+    for (size_t i = 0; i < formatted_args.size(); ++i) {
+        if (i != 0) {
+            output << ";";
+        }
+        output << formatted_args[i];
+    }
+    return output.str();
+}
+
+std::string get_kernel_output_arg_addresses(const kernel_arguments_desc& args_desc, const kernel_arguments_data& args) {
+    std::vector<std::string> formatted_args;
+
+    for (size_t ordinal = 0; ordinal < args_desc.arguments.size(); ++ordinal) {
+        const auto& arg_desc = args_desc.arguments[ordinal];
+        if (!is_output_memory_argument(arg_desc.t)) {
+            continue;
+        }
+
+        const auto mem = resolve_argument_memory(arg_desc, args);
+        std::ostringstream entry;
+        entry << ordinal << ":" << argument_type_to_string(arg_desc.t) << ":" << arg_desc.index << ":"
+              << (mem ? mem->get_allocation_type() : allocation_type::unknown) << ":"
+              << get_memory_identity_string(mem);
+        formatted_args.push_back(entry.str());
+    }
+
+    std::ostringstream output;
+    for (size_t i = 0; i < formatted_args.size(); ++i) {
+        if (i != 0) {
+            output << ";";
+        }
+        output << formatted_args[i];
+    }
+    return output.str();
+}
+
+std::string get_output_memory_addresses(const kernel_arguments_data& args) {
+    std::vector<std::string> formatted_args;
+    std::set<std::string> seen_entries;
+
+    for (size_t output_index = 0; output_index < args.outputs.size(); ++output_index) {
+        const auto& mem = args.outputs[output_index];
+        std::ostringstream entry;
+        entry << output_index << ":OUTPUT_BUFFER:"
+              << (mem ? mem->get_allocation_type() : allocation_type::unknown) << ":"
+              << get_memory_identity_string(mem);
+        if (seen_entries.insert(entry.str()).second) {
+            formatted_args.push_back(entry.str());
+        }
+    }
+
+    std::ostringstream output;
+    for (size_t i = 0; i < formatted_args.size(); ++i) {
+        if (i != 0) {
+            output << ";";
+        }
+        output << formatted_args[i];
+    }
+    return output.str();
+}
+
+std::mutex& get_dispatch_dump_mutex() {
+    static std::mutex dispatch_dump_mutex;
+    return dispatch_dump_mutex;
+}
+
+uint64_t acquire_global_dispatch_dump_id() {
+    static std::atomic<uint64_t> global_dispatch_id{0};
+    return global_dispatch_id.fetch_add(1, std::memory_order_relaxed);
+}
+// gsoc gtpin end
 
 // gsoc gtpin
 template <typename Container>
@@ -1059,15 +1246,37 @@ void network::execute_impl(const std::vector<event::ptr>& events) {
 
 void network::init_dispatch_dump() {
 #ifdef GPU_DEBUG_CONFIG
-    // gtpin integration -- correlation
     const std::string dump_path = GPU_DEBUG_VALUE_OR(get_config().get_dump_dispatch_map_path(), "");
     if (dump_path.empty()) {
         return;
     }
 
-    _dispatch_dump_stream.open(dump_path + "/dispatch_map_raw" + std::to_string(net_id) + ".csv", std::ios::out | std::ios::trunc);
-    if (_dispatch_dump_stream.is_open()) {
-        _dispatch_dump_stream << "net_id,iteration,dispatch_index,primitive_id,primitive_type,implementation,kernel_index,kernel_entry,batch_hash\n";
+    std::error_code error_code;
+    std::filesystem::create_directories(dump_path, error_code);
+    if (error_code) {
+        GPU_DEBUG_INFO << "[dispatch_map] Failed to create dump directory " << dump_path
+                       << ". error=" << error_code.message() << std::endl;
+        return;
+    }
+
+    _dispatch_dump_file_path = dump_path + "/dispatch_map.csv";
+
+    std::lock_guard<std::mutex> lock(get_dispatch_dump_mutex());
+    bool write_header = false;
+    {
+        std::ifstream existing_file(_dispatch_dump_file_path, std::ios::binary | std::ios::ate);
+        write_header = !existing_file.good() || existing_file.tellg() == 0;
+    }
+
+    _dispatch_dump_stream.open(_dispatch_dump_file_path, std::ios::out | std::ios::app);
+    if (!_dispatch_dump_stream.is_open()) {
+        GPU_DEBUG_INFO << "[dispatch_map] Failed to open dump file " << _dispatch_dump_file_path << std::endl;
+        return;
+    }
+
+    if (write_header) {
+        _dispatch_dump_stream << "net_id,iteration,dispatch_index,global_dispatch_id,primitive_id,primitive_type,implementation,kernel_index,kernel_entry,batch_hash,input_arg_addresses,output_arg_addresses,output_memory_addresses\n";
+        _dispatch_dump_stream.flush();
     }
 #endif
 }
@@ -1083,7 +1292,7 @@ void network::dump_topology_primitive_map_artifacts() const {
     const auto detail_path = dump_path + "/ov_topdown_primitive_rows" + std::to_string(net_id) + ".csv";
     const auto summary_path = dump_path + "/ov_topdown_primitive_summary" + std::to_string(net_id) + ".csv";
 
-    std::map<std::string, program::primitive_info> primitive_info_by_id;
+    std::map<std::string, primitive_info> primitive_info_by_id;
     for (const auto& info : get_primitives_info()) {
         primitive_info_by_id.emplace(info.original_id, info);
     }
@@ -1095,7 +1304,7 @@ void network::dump_topology_primitive_map_artifacts() const {
     for (const auto& primitive_entry : _primitives) {
         const auto& primitive_id = primitive_entry.first;
         const auto& inst = primitive_entry.second;
-        const auto* prim = inst->get_node().get_primitive();
+        const auto prim = inst->get_node().get_primitive();
 
         topdown_primitive_row row;
         row.origin_op_name = prim->origin_op_name.empty() ? inst->org_id() : prim->origin_op_name;
@@ -1187,9 +1396,13 @@ void network::dump_topology_primitive_map() const {
 }
 // gsoc gtpin
 
-void network::dump_dispatch_row(const primitive_inst& inst, size_t kernel_index, const std::string& kernel_entry_override) {
+// gsoc gtpin start
+void network::dump_dispatch_row(const primitive_inst& inst,
+                                size_t kernel_index,
+                                const std::string& kernel_entry_override,
+                                const kernel_arguments_desc& args_desc,
+                                const kernel_arguments_data& args) {
 #ifdef GPU_DEBUG_CONFIG
-    // gtpin integration -- correlation
     if (!_dispatch_dump_stream.is_open()) {
         return;
     }
@@ -1198,20 +1411,23 @@ void network::dump_dispatch_row(const primitive_inst& inst, size_t kernel_index,
     std::string kernel_entry;
     std::string batch_hash;
     std::string metadata_source = "none";
+    // gsoc project: current OV kernel dump metadata API requires impl params and
+    // returns KernelDumpInfo rather than the older pair<string, string> form.
+    const auto* impl_params = inst.get_impl_params();
     if (const auto* impl = inst.get_impl()) {
         implementation = impl->get_kernel_name();
-        const auto kernel_dump_info = impl->get_kernels_dump_info();
-        batch_hash = kernel_dump_info.first;
+        const auto kernel_dump_info = impl_params ? impl->get_kernels_dump_info(*impl_params) : KernelDumpInfo{};
+        batch_hash = kernel_dump_info.get_batch_hash();
         if (!kernel_entry_override.empty()) {
             kernel_entry = kernel_entry_override;
             metadata_source = "per_dispatch_override";
         } else {
-            const auto kernel_entries = split_kernel_entries(kernel_dump_info.second);
+            const auto kernel_entries = split_kernel_entries(kernel_dump_info.get_entries());
             if (kernel_index < kernel_entries.size()) {
                 kernel_entry = kernel_entries[kernel_index];
                 metadata_source = "runtime_impl_indexed";
             } else {
-                kernel_entry = kernel_dump_info.second;
+                kernel_entry = kernel_dump_info.get_entries();
                 if (!kernel_entry.empty() || !batch_hash.empty()) {
                     metadata_source = "runtime_impl_raw";
                 }
@@ -1224,15 +1440,15 @@ void network::dump_dispatch_row(const primitive_inst& inst, size_t kernel_index,
 
     if (kernel_entry.empty() && inst.has_node()) {
         if (const auto* selected_impl = inst.get_node().get_selected_impl()) {
-            const auto kernel_dump_info = selected_impl->get_kernels_dump_info();
+            const auto kernel_dump_info = impl_params ? selected_impl->get_kernels_dump_info(*impl_params) : KernelDumpInfo{};
             if (batch_hash.empty()) {
-                batch_hash = kernel_dump_info.first;
+                batch_hash = kernel_dump_info.get_batch_hash();
             }
             if (!kernel_entry_override.empty()) {
                 kernel_entry = kernel_entry_override;
             } else {
-                const auto kernel_entries = split_kernel_entries(kernel_dump_info.second);
-                kernel_entry = kernel_index < kernel_entries.size() ? kernel_entries[kernel_index] : kernel_dump_info.second;
+                const auto kernel_entries = split_kernel_entries(kernel_dump_info.get_entries());
+                kernel_entry = kernel_index < kernel_entries.size() ? kernel_entries[kernel_index] : kernel_dump_info.get_entries();
             }
             if (!kernel_entry.empty() || !batch_hash.empty()) {
                 metadata_source = "selected_impl_fallback";
@@ -1251,21 +1467,36 @@ void network::dump_dispatch_row(const primitive_inst& inst, size_t kernel_index,
                        << " source=" << metadata_source << std::endl;
     }
 
+    const auto input_arg_addresses = get_kernel_input_arg_addresses(args_desc, args);
+    const auto output_arg_addresses = get_kernel_output_arg_addresses(args_desc, args);
+    const auto output_memory_addresses = get_output_memory_addresses(args);
+    const auto local_dispatch_index = _dispatch_index++;
+    const auto global_dispatch_id = acquire_global_dispatch_dump_id();
+
+    std::lock_guard<std::mutex> lock(get_dispatch_dump_mutex());
     _dispatch_dump_stream << net_id << ","
                           << get_current_iteration_num() << ","
-                          << _dispatch_index++ << ","
+                          << local_dispatch_index << ","
+                          << global_dispatch_id << ","
                           << csv_escape(inst.id()) << ","
                           << csv_escape(inst.desc()->type_string()) << ","
                           << csv_escape(implementation) << ","
                           << kernel_index << ","
                           << csv_escape(kernel_entry) << ","
-                          << csv_escape(batch_hash) << "\n";
+                          << csv_escape(batch_hash) << ","
+                          << csv_escape(input_arg_addresses) << ","
+                          << csv_escape(output_arg_addresses) << ","
+                          << csv_escape(output_memory_addresses) << "\n";
+    _dispatch_dump_stream.flush();
 #else
-    OPENVINO_UNUSED(inst);
-    OPENVINO_UNUSED(kernel_index);
-    OPENVINO_UNUSED(kernel_entry_override);
+    (void)inst;
+    (void)kernel_index;
+    (void)kernel_entry_override;
+    (void)args_desc;
+    (void)args;
 #endif
 }
+// gsoc gtpin end
 
 std::vector<primitive_id> network::get_input_ids() const {
     std::vector<primitive_id> ret;

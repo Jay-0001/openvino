@@ -229,9 +229,13 @@ public:
 
     std::shared_ptr<ShapePredictor> get_shape_predictor() { return _shape_predictor; }
     void set_shape_predictor(std::shared_ptr<ShapePredictor> shape_predictor) { _shape_predictor = shape_predictor; }
-    // gtpin integration -- correlation
-    void dump_dispatch_row(const primitive_inst& inst, size_t kernel_index, const std::string& kernel_entry = std::string());
-    // gsoc gtpin
+    // gsoc gtpin start
+    void dump_dispatch_row(const primitive_inst& inst,
+                           size_t kernel_index,
+                           const std::string& kernel_entry,
+                           const kernel_arguments_desc& args_desc,
+                           const kernel_arguments_data& args);
+    // gsoc gtpin end
     void dump_topology_primitive_map() const;
     // gsoc gtpin
 
@@ -308,6 +312,7 @@ private:
     mutable int64_t iteration = 0;
     // gtpin integration -- correlation
     std::ofstream _dispatch_dump_stream;
+    std::string _dispatch_dump_file_path;
     // gtpin integration -- correlation
     size_t _dispatch_index = 0;
     friend class NetworkDebugHelper;

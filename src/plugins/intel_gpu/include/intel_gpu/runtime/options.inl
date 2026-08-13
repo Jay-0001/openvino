@@ -99,9 +99,10 @@ OV_CONFIG_DEBUG_GLOBAL_OPTION(ov::intel_gpu, debug_config, "", "Path to debug co
 
 OV_CONFIG_DEBUG_OPTION(ov::intel_gpu, disable_onednn_post_ops_opt, false, "Disable optimization pass for onednn post-ops")
 OV_CONFIG_DEBUG_OPTION(ov::intel_gpu, dump_profiling_data_path, "", "Save csv file with per-stage and per-primitive profiling data to specified folder")
-OV_CONFIG_DEBUG_OPTION(ov::intel_gpu, dump_dispatch_map_path, "", "Save csv file with per-execution primitive to kernel dispatch mapping to specified folder")
+OV_CONFIG_DEBUG_OPTION(ov::intel_gpu, average_counters, "", "Save averaged per-primitive counters to specified folder")
+OV_CONFIG_DEBUG_OPTION(ov::intel_gpu, dump_dispatch_map_path, "W:\\Building\\GSOC\\Coding_period\\Correlation_analysis\\dispatch_dump", "Save csv file with per-execution primitive to kernel dispatch mapping to specified folder")
 // gsoc gtpin
-OV_CONFIG_DEBUG_OPTION(ov::intel_gpu, dump_topology_primitive_map_path, "", "Save csv files with OpenVINO op to GPU primitive top-down mapping to specified folder")
+OV_CONFIG_DEBUG_OPTION(ov::intel_gpu, dump_topology_primitive_map_path, "W:\\Building\\GSOC\\Coding_period\\Correlation_analysis\\top_down_dump", "Save csv files with OpenVINO op to GPU primitive top-down mapping to specified folder")
 // gsoc gtpin
 OV_CONFIG_DEBUG_OPTION(ov::intel_gpu, dump_graphs_path, "", "Save intermediate graph representations during model compilation pipeline to specified folder")
 OV_CONFIG_DEBUG_OPTION(ov::intel_gpu, dump_sources_path, "", "Save generated sources for each kernel to specified folder")

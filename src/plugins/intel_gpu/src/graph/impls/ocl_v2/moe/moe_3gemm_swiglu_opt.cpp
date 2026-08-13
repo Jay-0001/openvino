@@ -1497,8 +1497,15 @@ public:
 
         // gtpin integration -- correlation
         const auto kernel_entry = stage.kd.code ? stage.kd.code->entry_point : std::string();
-        // gtpin integration -- correlation
-        instance.get_network().dump_dispatch_row(instance, static_cast<size_t>(stage_idx), kernel_entry);
+        // gsoc gtpin start
+        size_t kernel_index = 0;
+        for (; kernel_index < _order.size(); ++kernel_index) {
+            if (_stages[_order[kernel_index]] == &stage) {
+                break;
+            }
+        }
+        instance.get_network().dump_dispatch_row(instance, kernel_index, kernel_entry, desc, args);
+        // gsoc gtpin end
         return stream.enqueue_kernel(*stage.kernel, desc, {}, events, needs_completion_event);
     }
 

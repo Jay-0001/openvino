@@ -131,15 +131,6 @@ static std::vector<cl::Device> getSubDevices(cl::Device& rootDevice) {
     return subDevices;
 }
 
-std::vector<device::ptr> ocl_device_detector::sort_devices(const std::vector<device::ptr>& devices_list) {
-    std::vector<device::ptr> sorted_list = devices_list;
-    std::stable_sort(sorted_list.begin(), sorted_list.end(), [](device::ptr d1,  device::ptr d2) {
-        return get_device_priority(d1->get_info()) < get_device_priority(d2->get_info());
-    });
-
-    return sorted_list;
-}
-
 //J -- The connection point -- engine to device query to device detector
 std::map<std::string, device::ptr> ocl_device_detector::get_available_devices(void* user_context,
                                                                               void* user_device,

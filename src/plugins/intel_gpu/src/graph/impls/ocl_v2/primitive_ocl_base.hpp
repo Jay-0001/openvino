@@ -271,8 +271,15 @@ struct PrimitiveImplOCL : public cldnn::primitive_impl {
         }
         // gtpin integration -- correlation
         const auto kernel_entry = stage.kd.code ? stage.kd.code->entry_point : std::string();
-        // gtpin integration -- correlation
-        instance.get_network().dump_dispatch_row(instance, kernel_index, kernel_entry);
+        // gsoc gtpin start
+        auto dispatch_args = get_arguments(instance);
+        dispatch_args.scalars = &params.scalars;
+        dispatch_args.local_memory_args = &params.local_memory_args;
+        for (const auto& mem : instance.get_intermediates_memories()) {
+            dispatch_args.intermediates.push_back(mem);
+        }
+        instance.get_network().dump_dispatch_row(instance, kernel_index, kernel_entry, params, dispatch_args);
+        // gsoc gtpin end
         return stream.enqueue_kernel(*stage.kernel, params, {}, events, needs_completion_event);
     }
 
