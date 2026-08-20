@@ -1496,13 +1496,17 @@ public:
         }
 
         // gtpin integration -- correlation
-        const auto kernel_entry = stage.kd.code ? stage.kd.code->entry_point : std::string();
+        const auto kernel_entry = stage.kd.code ? stage.kd.code->entry_point
+                                                : (stage.kernel ? stage.kernel->get_id() : std::string());
         // gsoc gtpin start
         size_t kernel_index = 0;
         for (; kernel_index < _order.size(); ++kernel_index) {
             if (_stages[_order[kernel_index]] == &stage) {
                 break;
             }
+        }
+        if (!kernel_entry.empty()) {
+            kernel_dump_info.add_entry_point(kernel_entry);
         }
         instance.get_network().dump_dispatch_row(instance, kernel_index, kernel_entry, desc, args);
         // gsoc gtpin end

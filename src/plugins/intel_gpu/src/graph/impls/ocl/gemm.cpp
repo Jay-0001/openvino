@@ -123,9 +123,11 @@ protected:
                                    << (needs_completion_event ? " has_completion_event=true" : "") << std::endl;
 
             // gtpin integration -- correlation
-            const auto kernel_entry = _kernels_data[stage].kernels[kd_idx].code.kernelString
-                                          ? _kernels_data[stage].kernels[kd_idx].code.kernelString->entry_point
-                                          : std::string();
+            // gsoc gtpin start
+            const auto kernel_entry = resolve_dispatch_kernel_identity(stage, kd_idx, idx_final);
+            if (!kernel_entry.empty()) {
+                kernel_dump_info.add_entry_point(kernel_entry);
+            }
             // gsoc gtpin start
             instance.get_network().dump_dispatch_row(instance, idx_final, kernel_entry, params, args);
             // gsoc gtpin end
@@ -134,7 +136,6 @@ protected:
                 tmp_events = {ev};
             }
             all_events.push_back(ev);
-            kernel_dump_info.add_entry_point(_kernels[idx_final]->get_id());
         }
 
         return stream.aggregate_events(all_events, all_events.size() > 1);

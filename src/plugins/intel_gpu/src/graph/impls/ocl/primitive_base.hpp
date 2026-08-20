@@ -147,6 +147,20 @@ protected:
         return args;
     }
 
+    // gsoc gtpin start
+    std::string resolve_dispatch_kernel_identity(size_t kernel_index) const {
+        if (kernel_index < _kernel_data.kernels.size() && _kernel_data.kernels[kernel_index].code.kernelString) {
+            return _kernel_data.kernels[kernel_index].code.kernelString->entry_point;
+        }
+
+        if (kernel_index < _kernels.size() && _kernels[kernel_index]) {
+            return _kernels[kernel_index]->get_id();
+        }
+
+        return {};
+    }
+    // gsoc gtpin end
+
     void init_kernels(const kernels_cache& kernels_cache, const kernel_impl_params& params) override {
         if (is_cpu()) {
             return;
@@ -282,9 +296,11 @@ protected:
                                    << (needs_completion_event ? " has_completion_event=true" : "") << std::endl;
 
             // gtpin integration -- correlation
-            const auto kernel_entry = _kernel_data.kernels[kd_idx].code.kernelString ? _kernel_data.kernels[kd_idx].code.kernelString->entry_point
-                                                                                      : std::string();
             // gsoc gtpin start
+            const auto kernel_entry = resolve_dispatch_kernel_identity(kd_idx);
+            if (!kernel_entry.empty()) {
+                kernel_dump_info.add_entry_point(kernel_entry);
+            }
             instance.get_network().dump_dispatch_row(instance, kd_idx, kernel_entry, params, args);
             // gsoc gtpin end
             auto ev = stream.enqueue_kernel(*_kernels[kd_idx], params, args, tmp_events, needs_completion_event);
@@ -293,7 +309,6 @@ protected:
             }
             all_events.push_back(ev);
 
-            kernel_dump_info.add_entry_point(_kernels[kd_idx]->get_id());
         }
 
         if ((all_events.empty()) && (!tmp_events.empty()))
@@ -342,11 +357,12 @@ protected:
                 continue;
             }
 
-            if (_kernel_data.kernels[i].code.kernelString) {
-                kernel_dump_info.add_entry_point(_kernel_data.kernels[i].code.kernelString->entry_point);
-            } else if (i < _kernels.size() && _kernels[i]) {
-                kernel_dump_info.add_entry_point(_kernels[i]->get_id());
+            // gsoc gtpin start
+            const auto kernel_entry = resolve_dispatch_kernel_identity(i);
+            if (!kernel_entry.empty()) {
+                kernel_dump_info.add_entry_point(kernel_entry);
             }
+            // gsoc gtpin end
         }
 
         return kernel_dump_info;

@@ -137,7 +137,19 @@ public:
         kargs_desc.workGroups.global = {token_num, lws_size};
         kargs_desc.workGroups.local = {1, lws_size};
 
-        kernel_dump_info.add_entry_point(routing_stage->kernel->get_id());
+        // gsoc gtpin start
+        const auto kernel_entry = resolve_dispatch_kernel_identity(*routing_stage);
+        size_t kernel_index = 0;
+        for (; kernel_index < _order.size(); ++kernel_index) {
+            if (_stages[_order[kernel_index]] == routing_stage) {
+                break;
+            }
+        }
+        if (!kernel_entry.empty()) {
+            kernel_dump_info.add_entry_point(kernel_entry);
+        }
+        instance.get_network().dump_dispatch_row(instance, kernel_index, kernel_entry, kargs_desc, args);
+        // gsoc gtpin end
 
         return stream.enqueue_kernel(*routing_stage->kernel, kargs_desc, {}, events, instance.needs_completion_event());
     }

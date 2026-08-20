@@ -181,7 +181,9 @@ struct custom_gpu_primitive_impl : typed_primitive_impl<custom_gpu_primitive> {
         }
 
         // gtpin integration -- correlation
-        const auto kernel_entry = cl_kernel->code.kernelString ? cl_kernel->code.kernelString->entry_point : std::string();
+        // gsoc gtpin start
+        const auto kernel_entry = cl_kernel->code.kernelString ? cl_kernel->code.kernelString->entry_point
+                                                                : (_kernels.empty() || !_kernels.front() ? std::string() : _kernels.front()->get_id());
         // gsoc gtpin start
         instance.get_network().dump_dispatch_row(instance, 0, kernel_entry, cl_kernel.get()->params, args);
         // gsoc gtpin end

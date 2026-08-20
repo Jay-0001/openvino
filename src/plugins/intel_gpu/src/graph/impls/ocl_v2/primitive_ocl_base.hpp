@@ -193,6 +193,20 @@ struct PrimitiveImplOCL : public cldnn::primitive_impl {
         return args;
     }
 
+    // gsoc gtpin start
+    [[nodiscard]] std::string resolve_dispatch_kernel_identity(const Stage& stage) const {
+        if (stage.kd.code) {
+            return stage.kd.code->entry_point;
+        }
+
+        if (stage.kernel) {
+            return stage.kernel->get_id();
+        }
+
+        return {};
+    }
+    // gsoc gtpin end
+
     void set_arguments(cldnn::primitive_inst& instance) override {}
     void set_arguments(cldnn::primitive_inst& instance, cldnn::kernel_arguments_data& args) override {}
 
@@ -270,8 +284,11 @@ struct PrimitiveImplOCL : public cldnn::primitive_impl {
             }
         }
         // gtpin integration -- correlation
-        const auto kernel_entry = stage.kd.code ? stage.kd.code->entry_point : std::string();
         // gsoc gtpin start
+        const auto kernel_entry = resolve_dispatch_kernel_identity(stage);
+        if (!kernel_entry.empty()) {
+            kernel_dump_info.add_entry_point(kernel_entry);
+        }
         auto dispatch_args = get_arguments(instance);
         dispatch_args.scalars = &params.scalars;
         dispatch_args.local_memory_args = &params.local_memory_args;
@@ -351,11 +368,12 @@ struct PrimitiveImplOCL : public cldnn::primitive_impl {
         for (size_t i = 0; i < updated_order.size(); ++i) {
             const auto& stage = _stages[updated_order[i]];
 
-            if (stage->kd.code) {
-                kernel_dump_info.add_entry_point(stage->kd.code->entry_point);
-            } else if (stage->kernel) {
-                kernel_dump_info.add_entry_point(stage->kernel->get_id());
+            // gsoc gtpin start
+            const auto kernel_entry = resolve_dispatch_kernel_identity(*stage);
+            if (!kernel_entry.empty()) {
+                kernel_dump_info.add_entry_point(kernel_entry);
             }
+            // gsoc gtpin end
         }
         return kernel_dump_info;
     }

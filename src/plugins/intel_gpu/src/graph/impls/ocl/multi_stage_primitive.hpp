@@ -105,6 +105,22 @@ struct multi_stage_primitive : public typed_primitive_impl<PType> {
 protected:
     virtual kernel_arguments_data get_arguments(const typed_primitive_inst<PType>& instance, size_t stage) const = 0;
 
+    // gsoc gtpin start
+    std::string resolve_dispatch_kernel_identity(size_t stage_index, size_t kernel_data_index, size_t kernel_index) const {
+        if (stage_index < _kernels_data.size() &&
+            kernel_data_index < _kernels_data[stage_index].kernels.size() &&
+            _kernels_data[stage_index].kernels[kernel_data_index].code.kernelString) {
+            return _kernels_data[stage_index].kernels[kernel_data_index].code.kernelString->entry_point;
+        }
+
+        if (kernel_index < _kernels.size() && _kernels[kernel_index]) {
+            return _kernels[kernel_index]->get_id();
+        }
+
+        return {};
+    }
+    // gsoc gtpin end
+
     void init_kernels(const kernels_cache& kernels_cache, const kernel_impl_params& params) override {
         _kernels.clear();
         if (!_kernels_data.empty() && !_kernels_data[0].kernels.empty()) {
@@ -228,9 +244,11 @@ protected:
     // Regardless of the model's dynamism, the compile time graph will rely on the skip_execution mechanism to determine which kernels will be executed
     // The runtime graph relies on the actual execution of the kernel in execute_stage(..)
     KernelDumpInfo get_kernels_dump_info(const cldnn::kernel_impl_params& impl_params) const override {
-        if (!kernel_dump_info.has_entries()) {
+        // gsoc gtpin start
+        if (kernel_dump_info.has_entries()) {
             return kernel_dump_info;
         }
+        // gsoc gtpin end
 
         size_t kernel_idx = 0;
         for (size_t stage = 0; stage < _kernels_data.size(); stage++) {
@@ -239,11 +257,12 @@ protected:
                     continue;
                 }
 
-                if (_kernels_data[stage].kernels[kd_idx].code.kernelString) {
-                    kernel_dump_info.add_entry_point(_kernels_data[stage].kernels[kd_idx].code.kernelString->entry_point);
-                } else if (kernel_idx < _kernels.size() && _kernels[kernel_idx]) {
-                    kernel_dump_info.add_entry_point(_kernels[kernel_idx]->get_id());
+                // gsoc gtpin start
+                const auto kernel_entry = resolve_dispatch_kernel_identity(stage, kd_idx, kernel_idx);
+                if (!kernel_entry.empty()) {
+                    kernel_dump_info.add_entry_point(kernel_entry);
                 }
+                // gsoc gtpin end
             }
         }
 

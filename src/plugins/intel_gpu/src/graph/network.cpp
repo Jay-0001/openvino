@@ -446,6 +446,12 @@ std::string join_strings(const Container& values, const std::string& separator) 
 }
 
 struct topdown_primitive_row {
+    // gsoc gtpin start
+    int64_t iteration = -1;
+    std::string execution_unit_key;
+    int64_t logical_execution_index = -1;
+    std::string origin_op_type_name;
+    // gsoc gtpin end
     std::string origin_op_name;
     std::string primitive_id;
     std::string original_primitive_id;
@@ -460,6 +466,9 @@ struct topdown_primitive_row {
 };
 
 struct topdown_summary_row {
+    // gsoc gtpin start
+    std::set<std::string> origin_op_type_names;
+    // gsoc gtpin end
     std::set<std::string> primitive_ids;
     std::set<std::string> original_primitive_ids;
     std::set<std::string> primitive_types;
@@ -507,9 +516,6 @@ network::network(program::ptr program, stream::ptr stream, bool is_internal, boo
     add_default_output_chains();
     // gtpin integration -- correlation
     init_dispatch_dump();
-    // gsoc gtpin
-    dump_topology_primitive_map_artifacts();
-    // gsoc gtpin
 }
 
 network::network(program::ptr program, bool is_internal, bool is_primary_stream)
@@ -1174,6 +1180,9 @@ std::map<primitive_id, network_output> network::execute(const std::vector<event:
     // in some cases.
     auto surf_lock = get_stream().create_surfaces_lock(in_out_mem);
 
+    // gsoc gtpin start
+    dump_topology_primitive_map_artifacts();
+    // gsoc gtpin end
     execute_impl(dependencies);
 
     std::map<primitive_id, network_output> result;
@@ -1289,17 +1298,32 @@ void network::dump_topology_primitive_map_artifacts() const {
         return;
     }
 
+    // gsoc gtpin start
+    std::error_code error_code;
+    std::filesystem::create_directories(dump_path, error_code);
+    if (error_code) {
+        GPU_DEBUG_INFO << "[topdown_map] Failed to create dump directory " << dump_path
+                       << ". error=" << error_code.message() << std::endl;
+        return;
+    }
+    // gsoc gtpin end
+
     const auto detail_path = dump_path + "/ov_topdown_primitive_rows" + std::to_string(net_id) + ".csv";
     const auto summary_path = dump_path + "/ov_topdown_primitive_summary" + std::to_string(net_id) + ".csv";
 
-    std::map<std::string, primitive_info> primitive_info_by_id;
+    std::map<std::string, primitive_info> primitive_info_by_original_id;
     for (const auto& info : get_primitives_info()) {
-        primitive_info_by_id.emplace(info.original_id, info);
+        primitive_info_by_original_id.emplace(info.original_id, info);
     }
 
     std::vector<topdown_primitive_row> rows;
     std::map<std::string, topdown_summary_row> summary_by_origin;
     rows.reserve(_primitives.size());
+    // gsoc gtpin start
+    const auto current_iteration = get_current_iteration_num();
+    const auto logical_execution_index = current_iteration;
+    const auto execution_unit_key = "n" + std::to_string(net_id) + "_i" + std::to_string(current_iteration);
+    // gsoc gtpin end
 
     for (const auto& primitive_entry : _primitives) {
         const auto& primitive_id = primitive_entry.first;
@@ -1307,6 +1331,12 @@ void network::dump_topology_primitive_map_artifacts() const {
         const auto prim = inst->get_node().get_primitive();
 
         topdown_primitive_row row;
+        // gsoc gtpin start
+        row.iteration = current_iteration;
+        row.execution_unit_key = execution_unit_key;
+        row.logical_execution_index = logical_execution_index;
+        row.origin_op_type_name = prim->origin_op_type_name;
+        // gsoc gtpin end
         row.origin_op_name = prim->origin_op_name.empty() ? inst->org_id() : prim->origin_op_name;
         row.primitive_id = primitive_id;
         row.original_primitive_id = inst->org_id();
@@ -1319,8 +1349,8 @@ void network::dump_topology_primitive_map_artifacts() const {
             return output->id() == primitive_id;
         }) != _outputs.end();
 
-        const auto info_it = primitive_info_by_id.find(primitive_id);
-        if (info_it != primitive_info_by_id.end()) {
+        const auto info_it = primitive_info_by_original_id.find(row.original_primitive_id);
+        if (info_it != primitive_info_by_original_id.end()) {
             row.exec_id = info_it->second.exec_id;
             row.dependencies.assign(info_it->second.c_dependencies.begin(), info_it->second.c_dependencies.end());
             row.users.assign(info_it->second.c_users.begin(), info_it->second.c_users.end());
@@ -1328,6 +1358,11 @@ void network::dump_topology_primitive_map_artifacts() const {
         }
 
         auto& summary = summary_by_origin[row.origin_op_name];
+        // gsoc gtpin start
+        if (!row.origin_op_type_name.empty()) {
+            summary.origin_op_type_names.insert(row.origin_op_type_name);
+        }
+        // gsoc gtpin end
         summary.primitive_ids.insert(row.primitive_id);
         summary.original_primitive_ids.insert(row.original_primitive_id);
         summary.primitive_types.insert(row.primitive_type);
@@ -1346,6 +1381,14 @@ void network::dump_topology_primitive_map_artifacts() const {
     }
 
     std::sort(rows.begin(), rows.end(), [](const topdown_primitive_row& lhs, const topdown_primitive_row& rhs) {
+        // gsoc gtpin start
+        if (lhs.iteration != rhs.iteration) {
+            return lhs.iteration < rhs.iteration;
+        }
+        if (lhs.logical_execution_index != rhs.logical_execution_index) {
+            return lhs.logical_execution_index < rhs.logical_execution_index;
+        }
+        // gsoc gtpin end
         if (lhs.origin_op_name != rhs.origin_op_name) {
             return lhs.origin_op_name < rhs.origin_op_name;
         }
@@ -1355,12 +1398,24 @@ void network::dump_topology_primitive_map_artifacts() const {
         return lhs.primitive_id < rhs.primitive_id;
     });
 
-    std::ofstream detail_file(detail_path, std::ios::out | std::ios::trunc);
+    bool write_detail_header = false;
+    {
+        std::ifstream existing_file(detail_path, std::ios::binary | std::ios::ate);
+        write_detail_header = !existing_file.good() || existing_file.tellg() == 0;
+    }
+
+    std::ofstream detail_file(detail_path, std::ios::out | std::ios::app);
     if (detail_file.is_open()) {
-        detail_file << "net_id,origin_op_name,primitive_id,original_primitive_id,primitive_type,implementation,exec_id,is_input,is_output,dependencies,users,fused_ids\n";
+        if (write_detail_header) {
+            detail_file << "net_id,iteration,execution_unit_key,logical_execution_index,origin_op_name,origin_op_type_name,primitive_id,original_primitive_id,primitive_type,implementation,exec_id,is_input,is_output,dependencies,users,fused_ids\n";
+        }
         for (const auto& row : rows) {
             detail_file << net_id << ","
+                        << row.iteration << ","
+                        << csv_escape(row.execution_unit_key) << ","
+                        << row.logical_execution_index << ","
                         << csv_escape(row.origin_op_name) << ","
+                        << csv_escape(row.origin_op_type_name) << ","
                         << csv_escape(row.primitive_id) << ","
                         << csv_escape(row.original_primitive_id) << ","
                         << csv_escape(row.primitive_type) << ","
@@ -1376,10 +1431,11 @@ void network::dump_topology_primitive_map_artifacts() const {
 
     std::ofstream summary_file(summary_path, std::ios::out | std::ios::trunc);
     if (summary_file.is_open()) {
-        summary_file << "net_id,origin_op_name,spawned_primitive_count,primitive_ids,original_primitive_ids,primitive_types,implementations,optimized_out_ids\n";
+        summary_file << "net_id,origin_op_name,origin_op_type_names,spawned_primitive_count,primitive_ids,original_primitive_ids,primitive_types,implementations,optimized_out_ids\n";
         for (const auto& entry : summary_by_origin) {
             summary_file << net_id << ","
                          << csv_escape(entry.first) << ","
+                         << csv_escape(join_strings(entry.second.origin_op_type_names, ";")) << ","
                          << entry.second.primitive_ids.size() << ","
                          << csv_escape(join_strings(entry.second.primitive_ids, ";")) << ","
                          << csv_escape(join_strings(entry.second.original_primitive_ids, ";")) << ","

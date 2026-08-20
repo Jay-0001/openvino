@@ -157,6 +157,40 @@ This script intentionally does not build producer-consumer graphs. Its current j
 
 ---
 
+## Graph Preparation And Visualization
+
+The graph-prep step materializes the current correlation hierarchy:
+
+- `component_group -> op_type -> layer -> primitive -> kernel`
+
+Use:
+
+```powershell
+python .\graph_join_preparation.py `
+  --dispatch-join "W:\path\to\dispatch_gtpin_kernel_metrics_join.csv" `
+  --topdown "W:\path\to\ov_topdown_primitive_rows.csv" `
+  --output-dir "W:\path\to\graph_join_prep" `
+  --bundle-name "tinyllama_graph_prep"
+```
+
+For the current primary visualization, generate Cytoscape.js DAG pages from that bundle:
+
+```powershell
+python .\graph_visualization_cytoscape.py `
+  --graph-prep-root "W:\path\to\graph_join_prep" `
+  --output-dir "W:\path\to\graph_join_prep\cytoscape_dag" `
+  --mode filtered `
+  --layout dagre
+```
+
+Notes:
+
+- the Cytoscape DAG view keeps hierarchy edges as the main layered structure
+- primitive dependency edges are included as an optional overlay, not as layout-driving edges
+- older HTML-only experiments were moved under `static_html\`
+
+---
+
 ## Notes
 
 - `--build-info-dir` is accepted as an alias of `--build-info-root`
