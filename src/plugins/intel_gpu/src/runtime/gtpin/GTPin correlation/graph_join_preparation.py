@@ -2,14 +2,14 @@
 """
 gsoc gtpin
 
-Prepare graph-oriented join artifacts from:
+Prepare hotspot-first correlation artifacts from:
 1. dispatch_gtpin_kernel_metrics_join.csv
 2. ov_topdown_primitive_rows*.csv
 
-The goal is not to build the final graph. The goal is to expose:
-- what can already be mapped cleanly
-- which joins are inference-specific
-- where topology remains network-scoped or ambiguous
+The goal is not to rebuild full topology. The goal is to expose:
+- per-inference kernel hotspots with higher-level OpenVINO context
+- a lightweight matched hierarchy for drilldown
+- a compact graph structure that can power later visualization
 """
 
 from __future__ import annotations
@@ -20,6 +20,90 @@ import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
+
+
+HOTSPOT_FIELDS = [
+    "execution_unit_key",
+    "logical_execution_index",
+    "net_id",
+    "iteration",
+    "is_internal_network_candidate",
+    "component_path",
+    "origin_op_name",
+    "origin_op_type_name",
+    "resolved_op_type_name",
+    "primitive_id",
+    "original_primitive_id",
+    "primitive_type",
+    "implementation",
+    "exec_id",
+    "kernel_entry",
+    "gtpin_kernel",
+    "dispatch_count",
+    "dispatch_ids",
+    "ov_match",
+    "kernel_alignment_status",
+    "kernel_entry_alignment_verified",
+    "pointer_coverage_match",
+    "ov_kernel_entry_present",
+    "gtpin_source_kind",
+    "gtpin_invocation_count",
+    "gtpin_total_execution_cycles",
+    "gtpin_avg_execution_cycles_per_invocation",
+    "execution_descriptor",
+]
+
+HIERARCHY_FIELDS = [
+    "execution_unit_key",
+    "logical_execution_index",
+    "net_id",
+    "iteration",
+    "component_path",
+    "origin_op_name",
+    "origin_op_type_name",
+    "resolved_op_type_name",
+    "primitive_id",
+    "original_primitive_id",
+    "primitive_type",
+    "implementation",
+    "exec_id",
+    "is_input",
+    "is_output",
+    "dispatch_count",
+    "kernel_entry_count",
+    "kernel_entries",
+    "gtpin_invocation_count",
+    "gtpin_total_execution_cycles",
+]
+
+GRAPH_NODE_FIELDS = [
+    "execution_unit_key",
+    "logical_execution_index",
+    "net_id",
+    "iteration",
+    "node_id",
+    "parent_node_id",
+    "node_type",
+    "display_name",
+    "component_path",
+    "origin_op_name",
+    "resolved_op_type_name",
+    "primitive_id",
+    "primitive_type",
+    "implementation",
+    "kernel_entry",
+    "dispatch_count",
+    "gtpin_invocation_count",
+    "gtpin_total_execution_cycles",
+]
+
+GRAPH_EDGE_FIELDS = [
+    "execution_unit_key",
+    "logical_execution_index",
+    "edge_type",
+    "source_node_id",
+    "target_node_id",
+]
 
 
 def to_int(value: str, default: int = 0) -> int:
@@ -94,6 +178,11 @@ def write_csv(path: Path, rows: List[Dict[str, object]], fieldnames: List[str]) 
             writer.writerow({name: row.get(name, "") for name in fieldnames})
 
 
+def join_unique_strings(values: Iterable[object]) -> str:
+    items = sorted({str(value).strip() for value in values if str(value).strip()})
+    return ";".join(items)
+
+
 def normalize_dispatch_rows(rows: List[Dict[str, str]]) -> List[Dict[str, object]]:
     normalized: List[Dict[str, object]] = []
     for row in rows:
@@ -152,6 +241,8 @@ def build_execution_units(dispatch_rows: List[Dict[str, object]]) -> Dict[str, D
                 "net_id_num": row["net_id_num"],
                 "iteration": row.get("iteration", ""),
                 "iteration_num": row["iteration_num"],
+                "is_internal_network_candidate": row.get("is_internal_network_candidate", ""),
+                "logical_execution_index": "",
                 "dispatch_rows_total": 0,
                 "matched_dispatch_rows": 0,
                 "kernel_aligned_rows": 0,
@@ -162,6 +253,13 @@ def build_execution_units(dispatch_rows: List[Dict[str, object]]) -> Dict[str, D
             unit["matched_dispatch_rows"] += 1
         if row.get("kernel_alignment_status") == "aligned":
             unit["kernel_aligned_rows"] += 1
+
+    steady_units = sorted(
+        [unit for unit in units.values() if int(unit["net_id_num"]) != 0],
+        key=lambda item: (int(item["net_id_num"]), int(item["iteration_num"]), str(item["execution_unit_key"])),
+    )
+    for logical_index, unit in enumerate(steady_units):
+        unit["logical_execution_index"] = logical_index
     return units
 
 
@@ -206,6 +304,310 @@ def expand_topdown_by_execution_unit(
             topology_mode_by_unit.setdefault(unit_key, "replicated_from_network_topology")
 
     return expanded, topology_mode_by_unit
+
+
+def get_logical_execution_index(execution_units: Dict[str, Dict[str, object]], execution_unit_key: str) -> str:
+    unit = execution_units.get(execution_unit_key)
+    if not unit:
+        return ""
+    return str(unit.get("logical_execution_index", ""))
+
+
+def build_matched_hierarchy_rows(
+    topdown_rows: List[Dict[str, object]],
+    dispatch_rows: List[Dict[str, object]],
+    execution_units: Dict[str, Dict[str, object]],
+) -> List[Dict[str, object]]:
+    dispatch_by_unit_primitive: Dict[Tuple[str, str], List[Dict[str, object]]] = defaultdict(list)
+    for row in dispatch_rows:
+        dispatch_by_unit_primitive[(str(row["execution_unit_key"]), str(row.get("primitive_id", "")))].append(row)
+
+    matched_rows: List[Dict[str, object]] = []
+    for row in topdown_rows:
+        unit_key = str(row.get("execution_unit_key", ""))
+        primitive_id = str(row.get("primitive_id", ""))
+        matching_dispatch_rows = dispatch_by_unit_primitive.get((unit_key, primitive_id), [])
+        if not matching_dispatch_rows:
+            continue
+
+        kernel_entries = sorted({
+            str(dispatch_row.get("kernel_entry", ""))
+            for dispatch_row in matching_dispatch_rows
+            if str(dispatch_row.get("kernel_entry", "")).strip()
+        })
+        matched_rows.append({
+            "execution_unit_key": unit_key,
+            "logical_execution_index": get_logical_execution_index(execution_units, unit_key),
+            "net_id": row.get("net_id", ""),
+            "iteration": row.get("iteration", ""),
+            "component_path": row.get("component_path", "(root)"),
+            "origin_op_name": row.get("origin_op_name", ""),
+            "origin_op_type_name": row.get("origin_op_type_name", ""),
+            "resolved_op_type_name": row.get("resolved_op_type_name", "Unknown"),
+            "primitive_id": primitive_id,
+            "original_primitive_id": row.get("original_primitive_id", ""),
+            "primitive_type": row.get("primitive_type", ""),
+            "implementation": row.get("implementation", ""),
+            "exec_id": row.get("exec_id", ""),
+            "is_input": row.get("is_input", ""),
+            "is_output": row.get("is_output", ""),
+            "dispatch_count": len(matching_dispatch_rows),
+            "kernel_entry_count": len(kernel_entries),
+            "kernel_entries": ";".join(kernel_entries),
+            "gtpin_invocation_count": sum(int(item["gtpin_invocation_count_num"]) for item in matching_dispatch_rows),
+            "gtpin_total_execution_cycles": sum(int(item["gtpin_total_execution_cycles_num"]) for item in matching_dispatch_rows),
+        })
+    return matched_rows
+
+
+def build_hotspot_rows(
+    matched_hierarchy_rows: List[Dict[str, object]],
+    dispatch_rows: List[Dict[str, object]],
+    execution_units: Dict[str, Dict[str, object]],
+) -> List[Dict[str, object]]:
+    hierarchy_by_unit_primitive: Dict[Tuple[str, str], Dict[str, object]] = {}
+    for row in matched_hierarchy_rows:
+        hierarchy_by_unit_primitive[(str(row["execution_unit_key"]), str(row["primitive_id"]))] = row
+
+    grouped_dispatch: Dict[Tuple[str, str, str], List[Dict[str, object]]] = defaultdict(list)
+    for row in dispatch_rows:
+        if row.get("ov_match") != "matched":
+            continue
+        unit_key = str(row.get("execution_unit_key", ""))
+        primitive_id = str(row.get("primitive_id", ""))
+        hierarchy_row = hierarchy_by_unit_primitive.get((unit_key, primitive_id))
+        if not hierarchy_row:
+            continue
+        kernel_entry = str(row.get("kernel_entry", ""))
+        grouped_dispatch[(unit_key, primitive_id, kernel_entry)].append(row)
+
+    hotspot_rows: List[Dict[str, object]] = []
+    for key, rows in sorted(grouped_dispatch.items()):
+        unit_key, primitive_id, kernel_entry = key
+        hierarchy_row = hierarchy_by_unit_primitive[(unit_key, primitive_id)]
+        first = rows[0]
+        invocation_total = sum(int(row["gtpin_invocation_count_num"]) for row in rows)
+        cycles_total = sum(int(row["gtpin_total_execution_cycles_num"]) for row in rows)
+        avg_cycles = int(cycles_total / invocation_total) if invocation_total else 0
+
+        hotspot_rows.append({
+            "execution_unit_key": unit_key,
+            "logical_execution_index": get_logical_execution_index(execution_units, unit_key),
+            "net_id": first.get("net_id", ""),
+            "iteration": first.get("iteration", ""),
+            "is_internal_network_candidate": first.get("is_internal_network_candidate", ""),
+            "component_path": hierarchy_row.get("component_path", "(root)"),
+            "origin_op_name": hierarchy_row.get("origin_op_name", ""),
+            "origin_op_type_name": hierarchy_row.get("origin_op_type_name", ""),
+            "resolved_op_type_name": hierarchy_row.get("resolved_op_type_name", "Unknown"),
+            "primitive_id": primitive_id,
+            "original_primitive_id": hierarchy_row.get("original_primitive_id", ""),
+            "primitive_type": first.get("primitive_type", ""),
+            "implementation": first.get("implementation", ""),
+            "exec_id": hierarchy_row.get("exec_id", ""),
+            "kernel_entry": kernel_entry,
+            "gtpin_kernel": join_unique_strings(row.get("gtpin_kernel", "") for row in rows),
+            "dispatch_count": len(rows),
+            "dispatch_ids": join_unique_strings(row.get("dispatch_id", "") for row in rows),
+            "ov_match": join_unique_strings(row.get("ov_match", "") for row in rows),
+            "kernel_alignment_status": join_unique_strings(row.get("kernel_alignment_status", "") for row in rows),
+            "kernel_entry_alignment_verified": join_unique_strings(row.get("kernel_entry_alignment_verified", "") for row in rows),
+            "pointer_coverage_match": join_unique_strings(row.get("pointer_coverage_match", "") for row in rows),
+            "ov_kernel_entry_present": join_unique_strings(row.get("ov_kernel_entry_present", "") for row in rows),
+            "gtpin_source_kind": join_unique_strings(row.get("gtpin_source_kind", "") for row in rows),
+            "gtpin_invocation_count": invocation_total,
+            "gtpin_total_execution_cycles": cycles_total,
+            "gtpin_avg_execution_cycles_per_invocation": avg_cycles,
+            "execution_descriptor": join_unique_strings(row.get("execution_descriptor", "") for row in rows),
+        })
+
+    hotspot_rows.sort(
+        key=lambda row: (
+            str(row["execution_unit_key"]),
+            -to_int(row["gtpin_total_execution_cycles"], default=0),
+            str(row["component_path"]),
+            str(row["origin_op_name"]),
+            str(row["primitive_id"]),
+            str(row["kernel_entry"]),
+        )
+    )
+    return hotspot_rows
+
+
+def build_graph_structure_rows(
+    hotspot_rows: List[Dict[str, object]],
+) -> Tuple[List[Dict[str, object]], List[Dict[str, object]]]:
+    component_nodes: Dict[Tuple[str, str], Dict[str, object]] = {}
+    op_type_nodes: Dict[Tuple[str, str, str], Dict[str, object]] = {}
+    op_nodes: Dict[Tuple[str, str], Dict[str, object]] = {}
+    primitive_nodes: Dict[Tuple[str, str], Dict[str, object]] = {}
+    kernel_nodes: Dict[Tuple[str, str, str], Dict[str, object]] = {}
+    edges: Dict[Tuple[str, str, str, str], Dict[str, object]] = {}
+
+    def merge_metric(node: Dict[str, object], row: Dict[str, object]) -> None:
+        node["dispatch_count"] = int(node.get("dispatch_count", 0)) + to_int(row.get("dispatch_count", 0), default=0)
+        node["gtpin_invocation_count"] = int(node.get("gtpin_invocation_count", 0)) + to_int(row.get("gtpin_invocation_count", 0), default=0)
+        node["gtpin_total_execution_cycles"] = int(node.get("gtpin_total_execution_cycles", 0)) + to_int(row.get("gtpin_total_execution_cycles", 0), default=0)
+
+    for row in hotspot_rows:
+        unit_key = str(row["execution_unit_key"])
+        logical_index = str(row.get("logical_execution_index", ""))
+        net_id = str(row.get("net_id", ""))
+        iteration = str(row.get("iteration", ""))
+        component_path = str(row.get("component_path", "(root)"))
+        resolved_op_type_name = str(row.get("resolved_op_type_name", "Unknown"))
+        origin_op_name = str(row.get("origin_op_name", ""))
+        primitive_id = str(row.get("primitive_id", ""))
+        kernel_entry = str(row.get("kernel_entry", ""))
+
+        component_key = (unit_key, component_path)
+        if component_key not in component_nodes:
+            component_nodes[component_key] = {
+                "execution_unit_key": unit_key,
+                "logical_execution_index": logical_index,
+                "net_id": net_id,
+                "iteration": iteration,
+                "node_id": f"{unit_key}::component_group::{component_path}",
+                "parent_node_id": "",
+                "node_type": "component_group",
+                "display_name": component_path,
+                "component_path": component_path,
+                "origin_op_name": "",
+                "resolved_op_type_name": "",
+                "primitive_id": "",
+                "primitive_type": "",
+                "implementation": "",
+                "kernel_entry": "",
+                "dispatch_count": 0,
+                "gtpin_invocation_count": 0,
+                "gtpin_total_execution_cycles": 0,
+            }
+        merge_metric(component_nodes[component_key], row)
+
+        op_type_key = (unit_key, component_path, resolved_op_type_name)
+        if op_type_key not in op_type_nodes:
+            op_type_nodes[op_type_key] = {
+                "execution_unit_key": unit_key,
+                "logical_execution_index": logical_index,
+                "net_id": net_id,
+                "iteration": iteration,
+                "node_id": f"{unit_key}::op_type::{component_path}::{resolved_op_type_name}",
+                "parent_node_id": component_nodes[component_key]["node_id"],
+                "node_type": "op_type",
+                "display_name": resolved_op_type_name,
+                "component_path": component_path,
+                "origin_op_name": "",
+                "resolved_op_type_name": resolved_op_type_name,
+                "primitive_id": "",
+                "primitive_type": "",
+                "implementation": "",
+                "kernel_entry": "",
+                "dispatch_count": 0,
+                "gtpin_invocation_count": 0,
+                "gtpin_total_execution_cycles": 0,
+            }
+        merge_metric(op_type_nodes[op_type_key], row)
+
+        op_key = (unit_key, origin_op_name)
+        if op_key not in op_nodes:
+            op_nodes[op_key] = {
+                "execution_unit_key": unit_key,
+                "logical_execution_index": logical_index,
+                "net_id": net_id,
+                "iteration": iteration,
+                "node_id": f"{unit_key}::op::{origin_op_name}",
+                "parent_node_id": op_type_nodes[op_type_key]["node_id"],
+                "node_type": "op",
+                "display_name": origin_op_name,
+                "component_path": component_path,
+                "origin_op_name": origin_op_name,
+                "resolved_op_type_name": resolved_op_type_name,
+                "primitive_id": "",
+                "primitive_type": "",
+                "implementation": "",
+                "kernel_entry": "",
+                "dispatch_count": 0,
+                "gtpin_invocation_count": 0,
+                "gtpin_total_execution_cycles": 0,
+            }
+        merge_metric(op_nodes[op_key], row)
+
+        primitive_key = (unit_key, primitive_id)
+        if primitive_key not in primitive_nodes:
+            primitive_nodes[primitive_key] = {
+                "execution_unit_key": unit_key,
+                "logical_execution_index": logical_index,
+                "net_id": net_id,
+                "iteration": iteration,
+                "node_id": f"{unit_key}::primitive::{primitive_id}",
+                "parent_node_id": op_nodes[op_key]["node_id"],
+                "node_type": "primitive",
+                "display_name": primitive_id,
+                "component_path": component_path,
+                "origin_op_name": origin_op_name,
+                "resolved_op_type_name": resolved_op_type_name,
+                "primitive_id": primitive_id,
+                "primitive_type": str(row.get("primitive_type", "")),
+                "implementation": str(row.get("implementation", "")),
+                "kernel_entry": "",
+                "dispatch_count": 0,
+                "gtpin_invocation_count": 0,
+                "gtpin_total_execution_cycles": 0,
+            }
+        merge_metric(primitive_nodes[primitive_key], row)
+
+        kernel_key = (unit_key, primitive_id, kernel_entry)
+        if kernel_key not in kernel_nodes:
+            kernel_nodes[kernel_key] = {
+                "execution_unit_key": unit_key,
+                "logical_execution_index": logical_index,
+                "net_id": net_id,
+                "iteration": iteration,
+                "node_id": f"{unit_key}::kernel::{primitive_id}::{kernel_entry}",
+                "parent_node_id": primitive_nodes[primitive_key]["node_id"],
+                "node_type": "kernel",
+                "display_name": kernel_entry,
+                "component_path": component_path,
+                "origin_op_name": origin_op_name,
+                "resolved_op_type_name": resolved_op_type_name,
+                "primitive_id": primitive_id,
+                "primitive_type": str(row.get("primitive_type", "")),
+                "implementation": str(row.get("implementation", "")),
+                "kernel_entry": kernel_entry,
+                "dispatch_count": 0,
+                "gtpin_invocation_count": 0,
+                "gtpin_total_execution_cycles": 0,
+            }
+        merge_metric(kernel_nodes[kernel_key], row)
+
+        edge_specs = [
+            ("component_group_to_op_type", component_nodes[component_key]["node_id"], op_type_nodes[op_type_key]["node_id"]),
+            ("op_type_to_op", op_type_nodes[op_type_key]["node_id"], op_nodes[op_key]["node_id"]),
+            ("op_to_primitive", op_nodes[op_key]["node_id"], primitive_nodes[primitive_key]["node_id"]),
+            ("primitive_to_kernel", primitive_nodes[primitive_key]["node_id"], kernel_nodes[kernel_key]["node_id"]),
+        ]
+        for edge_type, source_id, target_id in edge_specs:
+            edge_key = (unit_key, edge_type, source_id, target_id)
+            if edge_key not in edges:
+                edges[edge_key] = {
+                    "execution_unit_key": unit_key,
+                    "logical_execution_index": logical_index,
+                    "edge_type": edge_type,
+                    "source_node_id": source_id,
+                    "target_node_id": target_id,
+                }
+
+    graph_nodes = (
+        list(component_nodes.values())
+        + list(op_type_nodes.values())
+        + list(op_nodes.values())
+        + list(primitive_nodes.values())
+        + list(kernel_nodes.values())
+    )
+    graph_nodes.sort(key=lambda row: (str(row["execution_unit_key"]), str(row["node_type"]), str(row["node_id"])))
+    graph_edges = list(edges.values())
+    graph_edges.sort(key=lambda row: (str(row["execution_unit_key"]), str(row["edge_type"]), str(row["source_node_id"]), str(row["target_node_id"])))
+    return graph_nodes, graph_edges
 
 
 def aggregate_graph_rows(
@@ -523,8 +925,10 @@ def aggregate_graph_rows(
         unit_mapped = [row for row in unit_topdown if dispatch_by_unit_primitive.get((unit_key, str(row.get("primitive_id", ""))), [])]
         execution_unit_rows.append({
             "execution_unit_key": unit_key,
+            "logical_execution_index": unit.get("logical_execution_index", ""),
             "net_id": unit.get("net_id", ""),
             "iteration": unit.get("iteration", ""),
+            "is_internal_network_candidate": unit.get("is_internal_network_candidate", ""),
             "dispatch_rows_total": unit["dispatch_rows_total"],
             "matched_dispatch_rows": unit["matched_dispatch_rows"],
             "kernel_aligned_rows": unit["kernel_aligned_rows"],
@@ -575,124 +979,67 @@ def write_gap_report(path: Path, gap_summary: Dict[str, object], execution_unit_
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-# gsoc gtpin start
-def build_filtered_view(
-    execution_unit_key: str,
-    nodes: List[Dict[str, object]],
-    edges: List[Dict[str, object]],
-) -> Tuple[List[Dict[str, object]], List[Dict[str, object]]]:
-    unit_nodes = [row for row in nodes if str(row.get("execution_unit_key", "")) == execution_unit_key]
-    unit_edges = [row for row in edges if str(row.get("execution_unit_key", "")) == execution_unit_key]
-
-    included_node_ids = set()
-
-    for node in unit_nodes:
-        node_type = str(node.get("node_type", ""))
-        mapping_status = str(node.get("mapping_status", ""))
-        total_cycles = to_int(str(node.get("total_cycles", "0")), default=0)
-        dispatch_rows = to_int(str(node.get("dispatch_rows", "0")), default=0)
-
-        if node_type == "kernel":
-            included_node_ids.add(str(node["node_id"]))
-        elif node_type == "primitive" and mapping_status == "mapped":
-            included_node_ids.add(str(node["node_id"]))
-        elif node_type == "origin_op" and (total_cycles > 0 or dispatch_rows > 0):
-            included_node_ids.add(str(node["node_id"]))
-
-    # Pull in ancestors needed to keep the hierarchy connected.
-    by_node_id = {str(node["node_id"]): node for node in unit_nodes}
-    changed = True
-    while changed:
-        changed = False
-        for node_id in list(included_node_ids):
-            node = by_node_id.get(node_id)
-            if not node:
-                continue
-            parent_id = str(node.get("parent_node_id", ""))
-            if parent_id and parent_id in by_node_id and parent_id not in included_node_ids:
-                included_node_ids.add(parent_id)
-                changed = True
-
-    filtered_nodes = [node for node in unit_nodes if str(node.get("node_id", "")) in included_node_ids]
-    filtered_edges = [
-        edge for edge in unit_edges
-        if str(edge.get("source_node_id", "")) in included_node_ids
-        and str(edge.get("target_node_id", "")) in included_node_ids
-        and str(edge.get("edge_type", "")) != "primitive_dependency"
-    ]
-
-    return filtered_nodes, filtered_edges
-
-
 def write_execution_unit_bundles(
     output_dir: Path,
     bundle_name: str,
     execution_unit_rows: List[Dict[str, object]],
-    nodes: List[Dict[str, object]],
-    edges: List[Dict[str, object]],
+    hotspot_rows: List[Dict[str, object]],
+    hierarchy_rows: List[Dict[str, object]],
+    graph_nodes: List[Dict[str, object]],
+    graph_edges: List[Dict[str, object]],
 ) -> None:
     for unit_row in execution_unit_rows:
         execution_unit_key = str(unit_row["execution_unit_key"])
         unit_dir = output_dir / execution_unit_key
         unit_dir.mkdir(parents=True, exist_ok=True)
 
-        unit_nodes = [row for row in nodes if str(row.get("execution_unit_key", "")) == execution_unit_key]
-        unit_edges = [row for row in edges if str(row.get("execution_unit_key", "")) == execution_unit_key]
-        filtered_nodes, filtered_edges = build_filtered_view(execution_unit_key, nodes, edges)
+        unit_hotspots = [row for row in hotspot_rows if str(row.get("execution_unit_key", "")) == execution_unit_key]
+        unit_hierarchy = [row for row in hierarchy_rows if str(row.get("execution_unit_key", "")) == execution_unit_key]
+        unit_graph_nodes = [row for row in graph_nodes if str(row.get("execution_unit_key", "")) == execution_unit_key]
+        unit_graph_edges = [row for row in graph_edges if str(row.get("execution_unit_key", "")) == execution_unit_key]
 
         write_csv(
-            unit_dir / f"{bundle_name}_{execution_unit_key}_nodes_all.csv",
-            unit_nodes,
-            [
-                "node_id", "parent_node_id", "execution_unit_key", "net_id", "iteration", "node_type", "label",
-                "component_path", "origin_op_name", "origin_op_type_name", "resolved_op_type_name",
-                "primitive_id", "original_primitive_id", "primitive_type", "implementation", "exec_id", "dispatch_rows",
-                "kernel_entry_count", "kernel_entries", "total_cycles", "dependencies", "users", "fused_ids",
-                "topology_mode", "mapping_status", "layer_children", "primitive_children",
-            ],
+            unit_dir / f"{bundle_name}_{execution_unit_key}_hotspot_table.csv",
+            unit_hotspots,
+            HOTSPOT_FIELDS,
         )
         write_csv(
-            unit_dir / f"{bundle_name}_{execution_unit_key}_edges_all.csv",
-            unit_edges,
-            ["execution_unit_key", "edge_type", "source_node_id", "target_node_id", "source_label", "target_label", "semantic"],
+            unit_dir / f"{bundle_name}_{execution_unit_key}_hierarchy_rows.csv",
+            unit_hierarchy,
+            HIERARCHY_FIELDS,
         )
         write_csv(
-            unit_dir / f"{bundle_name}_{execution_unit_key}_nodes_filtered.csv",
-            filtered_nodes,
-            [
-                "node_id", "parent_node_id", "execution_unit_key", "net_id", "iteration", "node_type", "label",
-                "component_path", "origin_op_name", "origin_op_type_name", "resolved_op_type_name",
-                "primitive_id", "original_primitive_id", "primitive_type", "implementation", "exec_id", "dispatch_rows",
-                "kernel_entry_count", "kernel_entries", "total_cycles", "dependencies", "users", "fused_ids",
-                "topology_mode", "mapping_status", "layer_children", "primitive_children",
-            ],
+            unit_dir / f"{bundle_name}_{execution_unit_key}_graph_nodes.csv",
+            unit_graph_nodes,
+            GRAPH_NODE_FIELDS,
         )
         write_csv(
-            unit_dir / f"{bundle_name}_{execution_unit_key}_edges_filtered.csv",
-            filtered_edges,
-            ["execution_unit_key", "edge_type", "source_node_id", "target_node_id", "source_label", "target_label", "semantic"],
+            unit_dir / f"{bundle_name}_{execution_unit_key}_graph_edges.csv",
+            unit_graph_edges,
+            GRAPH_EDGE_FIELDS,
         )
 
         summary = {
             "execution_unit_key": execution_unit_key,
+            "logical_execution_index": unit_row.get("logical_execution_index", ""),
             "net_id": unit_row.get("net_id", ""),
             "iteration": unit_row.get("iteration", ""),
+            "is_internal_network_candidate": unit_row.get("is_internal_network_candidate", ""),
             "dispatch_rows_total": unit_row.get("dispatch_rows_total", 0),
             "matched_dispatch_rows": unit_row.get("matched_dispatch_rows", 0),
             "kernel_aligned_rows": unit_row.get("kernel_aligned_rows", 0),
             "topdown_primitives_total": unit_row.get("topdown_primitives_total", 0),
             "topdown_primitives_mapped": unit_row.get("topdown_primitives_mapped", 0),
             "topdown_mode": unit_row.get("topdown_mode", ""),
-            "all_nodes": len(unit_nodes),
-            "all_edges": len(unit_edges),
-            "filtered_nodes": len(filtered_nodes),
-            "filtered_edges": len(filtered_edges),
+            "hotspot_rows": len(unit_hotspots),
+            "hierarchy_rows": len(unit_hierarchy),
+            "graph_nodes": len(unit_graph_nodes),
+            "graph_edges": len(unit_graph_edges),
         }
         (unit_dir / f"{bundle_name}_{execution_unit_key}_summary.json").write_text(
             json.dumps(summary, indent=2),
             encoding="utf-8",
         )
-# gsoc gtpin end
 
 
 def main() -> None:
@@ -713,47 +1060,45 @@ def main() -> None:
 
     execution_units = build_execution_units(dispatch_rows)
     expanded_topdown_rows, topology_mode_by_unit = expand_topdown_by_execution_unit(topdown_rows, execution_units)
-    execution_unit_rows, graph_nodes, graph_edges, gap_summary = aggregate_graph_rows(
+    execution_unit_rows, _legacy_graph_nodes, _legacy_graph_edges, gap_summary = aggregate_graph_rows(
         dispatch_rows=dispatch_rows,
         topdown_rows=expanded_topdown_rows,
         execution_units=execution_units,
         topology_mode_by_unit=topology_mode_by_unit,
     )
+    matched_hierarchy_rows = build_matched_hierarchy_rows(expanded_topdown_rows, dispatch_rows, execution_units)
+    hotspot_rows = build_hotspot_rows(matched_hierarchy_rows, dispatch_rows, execution_units)
+    graph_nodes, graph_edges = build_graph_structure_rows(hotspot_rows)
 
     bundle_prefix = output_dir / args.bundle_name
     write_csv(
         bundle_prefix.with_name(f"{args.bundle_name}_execution_units.csv"),
         execution_unit_rows,
         [
-            "execution_unit_key", "net_id", "iteration", "dispatch_rows_total", "matched_dispatch_rows",
+            "execution_unit_key", "logical_execution_index", "net_id", "iteration", "is_internal_network_candidate",
+            "dispatch_rows_total", "matched_dispatch_rows",
             "kernel_aligned_rows", "topdown_primitives_total", "topdown_primitives_mapped", "topdown_mode",
         ],
     )
     write_csv(
-        bundle_prefix.with_name(f"{args.bundle_name}_nodes.csv"),
+        bundle_prefix.with_name(f"{args.bundle_name}_hotspot_table.csv"),
+        hotspot_rows,
+        HOTSPOT_FIELDS,
+    )
+    write_csv(
+        bundle_prefix.with_name(f"{args.bundle_name}_hierarchy_rows.csv"),
+        matched_hierarchy_rows,
+        HIERARCHY_FIELDS,
+    )
+    write_csv(
+        bundle_prefix.with_name(f"{args.bundle_name}_graph_nodes.csv"),
         graph_nodes,
-        [
-            "node_id", "parent_node_id", "execution_unit_key", "net_id", "iteration", "node_type", "label",
-            "component_path", "origin_op_name", "origin_op_type_name", "resolved_op_type_name",
-            "primitive_id", "original_primitive_id", "primitive_type", "implementation", "exec_id", "dispatch_rows",
-            "kernel_entry_count", "kernel_entries", "total_cycles", "dependencies", "users", "fused_ids",
-            "topology_mode", "mapping_status", "layer_children", "primitive_children",
-        ],
+        GRAPH_NODE_FIELDS,
     )
     write_csv(
-        bundle_prefix.with_name(f"{args.bundle_name}_edges.csv"),
+        bundle_prefix.with_name(f"{args.bundle_name}_graph_edges.csv"),
         graph_edges,
-        ["execution_unit_key", "edge_type", "source_node_id", "target_node_id", "source_label", "target_label", "semantic"],
-    )
-    write_csv(
-        bundle_prefix.with_name(f"{args.bundle_name}_topdown_expanded.csv"),
-        expanded_topdown_rows,
-        [
-            "net_id", "iteration", "execution_unit_key", "logical_execution_index", "origin_op_name",
-            "origin_op_type_name", "resolved_op_type_name", "component_path", "primitive_id",
-            "original_primitive_id", "primitive_type", "implementation", "exec_id", "is_input", "is_output",
-            "dependencies", "users", "fused_ids", "topdown_mode", "topology_scope",
-        ],
+        GRAPH_EDGE_FIELDS,
     )
 
     bundle_json = {
@@ -761,21 +1106,25 @@ def main() -> None:
         "topdown": str(topdown_path),
         "gap_summary": gap_summary,
         "execution_units": execution_unit_rows,
+        "hotspot_rows_total": len(hotspot_rows),
+        "hierarchy_rows_total": len(matched_hierarchy_rows),
+        "graph_nodes_total": len(graph_nodes),
+        "graph_edges_total": len(graph_edges),
     }
     bundle_prefix.with_name(f"{args.bundle_name}_summary.json").write_text(
         json.dumps(bundle_json, indent=2),
         encoding="utf-8",
     )
     write_gap_report(bundle_prefix.with_name(f"{args.bundle_name}_report.md"), gap_summary, execution_unit_rows)
-    # gsoc gtpin start
     write_execution_unit_bundles(
         output_dir=output_dir,
         bundle_name=args.bundle_name,
         execution_unit_rows=execution_unit_rows,
-        nodes=graph_nodes,
-        edges=graph_edges,
+        hotspot_rows=hotspot_rows,
+        hierarchy_rows=matched_hierarchy_rows,
+        graph_nodes=graph_nodes,
+        graph_edges=graph_edges,
     )
-    # gsoc gtpin end
 
 
 if __name__ == "__main__":
