@@ -208,7 +208,7 @@ def render_index_page(
     unit_summaries: List[Dict[str, object]],
 ) -> None:
     steady_summaries = [item for item in unit_summaries if str(item.get("is_internal_network_candidate", "")).lower() != "true"]
-    visible_summaries = steady_summaries[:5] if steady_summaries else unit_summaries[:5]
+    visible_summaries = steady_summaries if steady_summaries else unit_summaries
     rows_html: List[str] = []
     max_cycles = max((int(item["total_cycles"]) for item in visible_summaries), default=0)
     for summary in visible_summaries:

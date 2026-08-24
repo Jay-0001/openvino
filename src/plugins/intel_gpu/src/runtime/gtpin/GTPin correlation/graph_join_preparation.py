@@ -27,6 +27,7 @@ HOTSPOT_FIELDS = [
     "logical_execution_index",
     "net_id",
     "iteration",
+    "tool_kind",
     "is_internal_network_candidate",
     "component_path",
     "origin_op_name",
@@ -47,9 +48,21 @@ HOTSPOT_FIELDS = [
     "pointer_coverage_match",
     "ov_kernel_entry_present",
     "gtpin_source_kind",
+    "primary_metric_name",
+    "primary_metric_total",
+    "primary_metric_avg",
+    "primary_metric_unit",
     "gtpin_invocation_count",
     "gtpin_total_execution_cycles",
     "gtpin_avg_execution_cycles_per_invocation",
+    "gtpin_total_memory_ops",
+    "gtpin_estimated_total_bytes",
+    "gtpin_write_dominance_pct",
+    "gtpin_estimated_bytes_per_mem_op",
+    "gtpin_reads",
+    "gtpin_writes",
+    "gtpin_atomics",
+    "gtpin_metric_fields_json",
     "execution_descriptor",
 ]
 
@@ -58,6 +71,7 @@ HIERARCHY_FIELDS = [
     "logical_execution_index",
     "net_id",
     "iteration",
+    "tool_kind",
     "component_path",
     "origin_op_name",
     "origin_op_type_name",
@@ -72,6 +86,9 @@ HIERARCHY_FIELDS = [
     "dispatch_count",
     "kernel_entry_count",
     "kernel_entries",
+    "primary_metric_name",
+    "primary_metric_total",
+    "primary_metric_unit",
     "gtpin_invocation_count",
     "gtpin_total_execution_cycles",
 ]
@@ -92,6 +109,10 @@ GRAPH_NODE_FIELDS = [
     "primitive_type",
     "implementation",
     "kernel_entry",
+    "tool_kind",
+    "primary_metric_name",
+    "primary_metric_total",
+    "primary_metric_unit",
     "dispatch_count",
     "gtpin_invocation_count",
     "gtpin_total_execution_cycles",
@@ -116,6 +137,28 @@ def to_int(value: str, default: int = 0) -> int:
         return int(text)
     except ValueError:
         return default
+
+
+def parse_metric_fields_json(value: str) -> Dict[str, object]:
+    text = str(value).strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def infer_tool_kind(row: Dict[str, str]) -> str:
+    explicit = str(row.get("tool_kind", "")).strip()
+    if explicit:
+        return explicit
+    if str(row.get("primary_metric_name", "")).strip() or str(row.get("gtpin_estimated_total_bytes", "")).strip():
+        return "memory" if str(row.get("gtpin_estimated_total_bytes", "")).strip() else "performance"
+    if str(row.get("gtpin_total_execution_cycles", "")).strip():
+        return "performance"
+    return "unknown"
 
 
 def to_bool(value: str) -> bool:
@@ -187,12 +230,39 @@ def normalize_dispatch_rows(rows: List[Dict[str, str]]) -> List[Dict[str, object
     normalized: List[Dict[str, object]] = []
     for row in rows:
         item = dict(row)
+        metric_fields = parse_metric_fields_json(row.get("gtpin_metric_fields_json", ""))
+        item["tool_kind"] = infer_tool_kind(row)
         item["net_id_num"] = to_int(row.get("net_id_num", row.get("net_id", "")), default=-1)
         item["iteration_num"] = to_int(row.get("iteration_num", row.get("iteration", "")), default=-1)
         item["dispatch_id_num"] = to_int(row.get("dispatch_id", ""), default=-1)
         item["dispatch_index_num"] = to_int(row.get("dispatch_index", ""), default=-1)
-        item["gtpin_total_execution_cycles_num"] = to_int(row.get("gtpin_total_execution_cycles", ""), default=0)
-        item["gtpin_invocation_count_num"] = to_int(row.get("gtpin_invocation_count", ""), default=0)
+        item["metric_fields"] = metric_fields
+        item["gtpin_total_execution_cycles_num"] = to_int(
+            row.get("gtpin_total_execution_cycles", metric_fields.get("gtpin_total_execution_cycles", "")),
+            default=0,
+        )
+        item["gtpin_invocation_count_num"] = to_int(
+            row.get("gtpin_invocation_count", metric_fields.get("gtpin_invocation_count", "")),
+            default=0,
+        )
+        item["primary_metric_name"] = str(row.get("primary_metric_name", "")).strip()
+        item["primary_metric_total_num"] = to_int(row.get("primary_metric_total", ""), default=0)
+        item["primary_metric_avg"] = str(row.get("primary_metric_avg", "")).strip()
+        item["primary_metric_unit"] = str(row.get("primary_metric_unit", "")).strip()
+        item["gtpin_avg_execution_cycles_per_invocation"] = row.get(
+            "gtpin_avg_execution_cycles_per_invocation",
+            metric_fields.get("gtpin_avg_execution_cycles_per_invocation", ""),
+        )
+        item["gtpin_total_memory_ops"] = row.get("gtpin_total_memory_ops", metric_fields.get("gtpin_total_memory_ops", ""))
+        item["gtpin_estimated_total_bytes"] = row.get("gtpin_estimated_total_bytes", metric_fields.get("gtpin_estimated_total_bytes", ""))
+        item["gtpin_write_dominance_pct"] = row.get("gtpin_write_dominance_pct", metric_fields.get("gtpin_write_dominance_pct", ""))
+        item["gtpin_estimated_bytes_per_mem_op"] = row.get(
+            "gtpin_estimated_bytes_per_mem_op",
+            metric_fields.get("gtpin_estimated_bytes_per_mem_op", ""),
+        )
+        item["gtpin_reads"] = row.get("gtpin_reads", metric_fields.get("gtpin_reads", ""))
+        item["gtpin_writes"] = row.get("gtpin_writes", metric_fields.get("gtpin_writes", ""))
+        item["gtpin_atomics"] = row.get("gtpin_atomics", metric_fields.get("gtpin_atomics", ""))
         item["ov_kernel_entry_present_bool"] = to_bool(row.get("ov_kernel_entry_present", ""))
         item["pointer_coverage_match_bool"] = to_bool(row.get("pointer_coverage_match", ""))
         if not item.get("execution_unit_key"):
@@ -340,6 +410,7 @@ def build_matched_hierarchy_rows(
             "logical_execution_index": get_logical_execution_index(execution_units, unit_key),
             "net_id": row.get("net_id", ""),
             "iteration": row.get("iteration", ""),
+            "tool_kind": matching_dispatch_rows[0].get("tool_kind", ""),
             "component_path": row.get("component_path", "(root)"),
             "origin_op_name": row.get("origin_op_name", ""),
             "origin_op_type_name": row.get("origin_op_type_name", ""),
@@ -354,6 +425,9 @@ def build_matched_hierarchy_rows(
             "dispatch_count": len(matching_dispatch_rows),
             "kernel_entry_count": len(kernel_entries),
             "kernel_entries": ";".join(kernel_entries),
+            "primary_metric_name": matching_dispatch_rows[0].get("primary_metric_name", ""),
+            "primary_metric_total": sum(int(item["primary_metric_total_num"]) for item in matching_dispatch_rows),
+            "primary_metric_unit": matching_dispatch_rows[0].get("primary_metric_unit", ""),
             "gtpin_invocation_count": sum(int(item["gtpin_invocation_count_num"]) for item in matching_dispatch_rows),
             "gtpin_total_execution_cycles": sum(int(item["gtpin_total_execution_cycles_num"]) for item in matching_dispatch_rows),
         })
@@ -388,6 +462,7 @@ def build_hotspot_rows(
         first = rows[0]
         invocation_total = sum(int(row["gtpin_invocation_count_num"]) for row in rows)
         cycles_total = sum(int(row["gtpin_total_execution_cycles_num"]) for row in rows)
+        primary_metric_total = sum(int(row["primary_metric_total_num"]) for row in rows)
         avg_cycles = int(cycles_total / invocation_total) if invocation_total else 0
 
         hotspot_rows.append({
@@ -395,6 +470,7 @@ def build_hotspot_rows(
             "logical_execution_index": get_logical_execution_index(execution_units, unit_key),
             "net_id": first.get("net_id", ""),
             "iteration": first.get("iteration", ""),
+            "tool_kind": first.get("tool_kind", ""),
             "is_internal_network_candidate": first.get("is_internal_network_candidate", ""),
             "component_path": hierarchy_row.get("component_path", "(root)"),
             "origin_op_name": hierarchy_row.get("origin_op_name", ""),
@@ -415,16 +491,28 @@ def build_hotspot_rows(
             "pointer_coverage_match": join_unique_strings(row.get("pointer_coverage_match", "") for row in rows),
             "ov_kernel_entry_present": join_unique_strings(row.get("ov_kernel_entry_present", "") for row in rows),
             "gtpin_source_kind": join_unique_strings(row.get("gtpin_source_kind", "") for row in rows),
+            "primary_metric_name": first.get("primary_metric_name", ""),
+            "primary_metric_total": primary_metric_total,
+            "primary_metric_avg": first.get("primary_metric_avg", ""),
+            "primary_metric_unit": first.get("primary_metric_unit", ""),
             "gtpin_invocation_count": invocation_total,
             "gtpin_total_execution_cycles": cycles_total,
             "gtpin_avg_execution_cycles_per_invocation": avg_cycles,
+            "gtpin_total_memory_ops": sum(to_int(row.get("gtpin_total_memory_ops", 0), default=0) for row in rows),
+            "gtpin_estimated_total_bytes": sum(to_int(row.get("gtpin_estimated_total_bytes", 0), default=0) for row in rows),
+            "gtpin_write_dominance_pct": first.get("gtpin_write_dominance_pct", ""),
+            "gtpin_estimated_bytes_per_mem_op": first.get("gtpin_estimated_bytes_per_mem_op", ""),
+            "gtpin_reads": sum(to_int(row.get("gtpin_reads", 0), default=0) for row in rows),
+            "gtpin_writes": sum(to_int(row.get("gtpin_writes", 0), default=0) for row in rows),
+            "gtpin_atomics": sum(to_int(row.get("gtpin_atomics", 0), default=0) for row in rows),
+            "gtpin_metric_fields_json": first.get("gtpin_metric_fields_json", ""),
             "execution_descriptor": join_unique_strings(row.get("execution_descriptor", "") for row in rows),
         })
 
     hotspot_rows.sort(
         key=lambda row: (
             str(row["execution_unit_key"]),
-            -to_int(row["gtpin_total_execution_cycles"], default=0),
+            -to_int(row["primary_metric_total"], default=0),
             str(row["component_path"]),
             str(row["origin_op_name"]),
             str(row["primitive_id"]),
@@ -448,6 +536,7 @@ def build_graph_structure_rows(
         node["dispatch_count"] = int(node.get("dispatch_count", 0)) + to_int(row.get("dispatch_count", 0), default=0)
         node["gtpin_invocation_count"] = int(node.get("gtpin_invocation_count", 0)) + to_int(row.get("gtpin_invocation_count", 0), default=0)
         node["gtpin_total_execution_cycles"] = int(node.get("gtpin_total_execution_cycles", 0)) + to_int(row.get("gtpin_total_execution_cycles", 0), default=0)
+        node["primary_metric_total"] = int(node.get("primary_metric_total", 0)) + to_int(row.get("primary_metric_total", 0), default=0)
 
     for row in hotspot_rows:
         unit_key = str(row["execution_unit_key"])
@@ -478,6 +567,10 @@ def build_graph_structure_rows(
                 "primitive_type": "",
                 "implementation": "",
                 "kernel_entry": "",
+                "tool_kind": str(row.get("tool_kind", "")),
+                "primary_metric_name": str(row.get("primary_metric_name", "")),
+                "primary_metric_total": 0,
+                "primary_metric_unit": str(row.get("primary_metric_unit", "")),
                 "dispatch_count": 0,
                 "gtpin_invocation_count": 0,
                 "gtpin_total_execution_cycles": 0,
@@ -502,6 +595,10 @@ def build_graph_structure_rows(
                 "primitive_type": "",
                 "implementation": "",
                 "kernel_entry": "",
+                "tool_kind": str(row.get("tool_kind", "")),
+                "primary_metric_name": str(row.get("primary_metric_name", "")),
+                "primary_metric_total": 0,
+                "primary_metric_unit": str(row.get("primary_metric_unit", "")),
                 "dispatch_count": 0,
                 "gtpin_invocation_count": 0,
                 "gtpin_total_execution_cycles": 0,
@@ -526,6 +623,10 @@ def build_graph_structure_rows(
                 "primitive_type": "",
                 "implementation": "",
                 "kernel_entry": "",
+                "tool_kind": str(row.get("tool_kind", "")),
+                "primary_metric_name": str(row.get("primary_metric_name", "")),
+                "primary_metric_total": 0,
+                "primary_metric_unit": str(row.get("primary_metric_unit", "")),
                 "dispatch_count": 0,
                 "gtpin_invocation_count": 0,
                 "gtpin_total_execution_cycles": 0,
@@ -550,6 +651,10 @@ def build_graph_structure_rows(
                 "primitive_type": str(row.get("primitive_type", "")),
                 "implementation": str(row.get("implementation", "")),
                 "kernel_entry": "",
+                "tool_kind": str(row.get("tool_kind", "")),
+                "primary_metric_name": str(row.get("primary_metric_name", "")),
+                "primary_metric_total": 0,
+                "primary_metric_unit": str(row.get("primary_metric_unit", "")),
                 "dispatch_count": 0,
                 "gtpin_invocation_count": 0,
                 "gtpin_total_execution_cycles": 0,
@@ -574,6 +679,10 @@ def build_graph_structure_rows(
                 "primitive_type": str(row.get("primitive_type", "")),
                 "implementation": str(row.get("implementation", "")),
                 "kernel_entry": kernel_entry,
+                "tool_kind": str(row.get("tool_kind", "")),
+                "primary_metric_name": str(row.get("primary_metric_name", "")),
+                "primary_metric_total": 0,
+                "primary_metric_unit": str(row.get("primary_metric_unit", "")),
                 "dispatch_count": 0,
                 "gtpin_invocation_count": 0,
                 "gtpin_total_execution_cycles": 0,
@@ -658,7 +767,7 @@ def aggregate_graph_rows(
         for row in rows:
             primitive_dispatch_rows = dispatch_by_unit_primitive.get((unit_key, str(row.get("primitive_id", ""))), [])
             dispatch_children += len(primitive_dispatch_rows)
-            total_cycles += sum(int(item["gtpin_total_execution_cycles_num"]) for item in primitive_dispatch_rows)
+            total_cycles += sum(int(item["primary_metric_total_num"]) for item in primitive_dispatch_rows)
 
         node_id = f"{unit_key}::component_group::{component_path}"
         component_group_node_ids[(unit_key, component_path)] = node_id
@@ -701,7 +810,7 @@ def aggregate_graph_rows(
         for row in rows:
             primitive_dispatch_rows = dispatch_by_unit_primitive.get((unit_key, str(row.get("primitive_id", ""))), [])
             dispatch_children += len(primitive_dispatch_rows)
-            total_cycles += sum(int(item["gtpin_total_execution_cycles_num"]) for item in primitive_dispatch_rows)
+            total_cycles += sum(int(item["primary_metric_total_num"]) for item in primitive_dispatch_rows)
 
         node_id = f"{unit_key}::op_type::{component_path}::{resolved_op_type_name}"
         op_type_node_ids[(unit_key, component_path, resolved_op_type_name)] = node_id
@@ -754,7 +863,7 @@ def aggregate_graph_rows(
             primitive_dispatch_rows = dispatch_by_unit_primitive.get((unit_key, str(row.get("primitive_id", ""))), [])
             if primitive_dispatch_rows:
                 dispatch_children += len(primitive_dispatch_rows)
-                total_cycles += sum(int(item["gtpin_total_execution_cycles_num"]) for item in primitive_dispatch_rows)
+                total_cycles += sum(int(item["primary_metric_total_num"]) for item in primitive_dispatch_rows)
 
         node_id = f"{unit_key}::layer::{origin_op_name}"
         layer_node_ids[(unit_key, origin_op_name)] = node_id
@@ -801,7 +910,7 @@ def aggregate_graph_rows(
             for row in matching_dispatch_rows
             if str(row.get("kernel_entry", "")).strip()
         })
-        total_cycles = sum(int(row["gtpin_total_execution_cycles_num"]) for row in matching_dispatch_rows)
+        total_cycles = sum(int(row["primary_metric_total_num"]) for row in matching_dispatch_rows)
         dispatch_count = len(matching_dispatch_rows)
         if not matching_dispatch_rows:
             unmapped_topdown_rows += 1
@@ -876,7 +985,7 @@ def aggregate_graph_rows(
                 "dispatch_rows": len(kernel_rows),
                 "kernel_entry_count": 1,
                 "kernel_entries": kernel_entry,
-                "total_cycles": sum(int(row["gtpin_total_execution_cycles_num"]) for row in kernel_rows),
+                "total_cycles": sum(int(row["primary_metric_total_num"]) for row in kernel_rows),
                 "dependencies": "",
                 "users": "",
                 "fused_ids": "",

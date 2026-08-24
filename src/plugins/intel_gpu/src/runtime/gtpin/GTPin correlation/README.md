@@ -66,10 +66,10 @@ To emit a custom subset, repeat:
 
 ```powershell
 .\build\Release\offline_correlation.exe `
-  --gtpin-profile "W:\Building\GSOC\Before Acceptance\openvino_pre\bin\intel64\Release\GTPIN_PROFILE_17\Session_Final\resnet_single_infer.txt" `
-  --build-info-root "W:\Building\GSOC\Coding_period\Correlation_analysis\dumps\resnet2\graphs" `
-  --source-root "W:\Building\GSOC\Coding_period\Correlation_analysis\dumps\resnet2\sources" `
-  --output-dir "W:\Building\GSOC\Coding_period\Correlation_analysis\offline_outputs\resnet2"
+  --gtpin-profile "<path-to-gtpin-profile>\resnet_single_infer.txt" `
+  --build-info-root "<path-to-build-implementations-root>" `
+  --source-root "<path-to-source-buckets-root>" `
+  --output-dir "<path-to-output-dir>"
 ```
 
 Generated files:
@@ -107,9 +107,9 @@ Use the dedicated analyzer:
 
 ```powershell
 .\dispatch_lineage_correlation_analysis.ps1 `
-  -DispatchCsv "W:\path\to\dispatch_map.csv" `
-  -GtpinDump "W:\path\to\kernel_arg_address_dump.txt" `
-  -OutputDir "W:\path\to\dispatch_lineage_analysis"
+  -DispatchCsv "<path-to-dispatch-map>\dispatch_map.csv" `
+  -GtpinDump "<path-to-gtpin-dump>\kernel_arg_address_dump.txt" `
+  -OutputDir "<path-to-output-dir>"
 ```
 
 Generated files:
@@ -134,10 +134,10 @@ It first aligns dispatches through `DispatchId <-> global_dispatch_id`, then eva
 
 ```powershell
 .\multi_inference_robustness_analysis.ps1 `
-  -DispatchCsv "W:\path\to\dispatch_map.csv" `
-  -GtpinDump "W:\path\to\kernel_arg_address_dump.txt" `
+  -DispatchCsv "<path-to-dispatch-map>\dispatch_map.csv" `
+  -GtpinDump "<path-to-gtpin-dump>\kernel_arg_address_dump.txt" `
   -ModelLabel "mobilevnetv3_model" `
-  -OutputDir "W:\path\to\multi_inference_analysis"
+  -OutputDir "<path-to-output-dir>"
 ```
 
 Generated files:
@@ -167,9 +167,9 @@ Use:
 
 ```powershell
 python .\graph_join_preparation.py `
-  --dispatch-join "W:\path\to\dispatch_gtpin_kernel_metrics_join.csv" `
-  --topdown "W:\path\to\ov_topdown_primitive_rows.csv" `
-  --output-dir "W:\path\to\graph_join_prep" `
+  --dispatch-join "<path-to-dispatch-join>\dispatch_gtpin_kernel_metrics_join.csv" `
+  --topdown "<path-to-topdown>\ov_topdown_primitive_rows.csv" `
+  --output-dir "<path-to-output-dir>" `
   --bundle-name "tinyllama_graph_prep"
 ```
 
@@ -177,8 +177,8 @@ For the current primary visualization, generate Cytoscape.js DAG pages from that
 
 ```powershell
 python .\graph_visualization_cytoscape.py `
-  --graph-prep-root "W:\path\to\graph_join_prep" `
-  --output-dir "W:\path\to\graph_join_prep\cytoscape_dag" `
+  --graph-prep-root "<path-to-graph-prep-root>" `
+  --output-dir "<path-to-output-dir>" `
   --mode filtered `
   --layout dagre
 ```

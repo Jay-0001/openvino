@@ -29,7 +29,7 @@ Enable the integration during OpenVINO configuration:
 ```bash
 cmake ^
   -DENABLE_GTPIN_INTEGRATION=ON ^
-  -DGTPIN_ROOT="W:/external-release-gtpin-4.7.1-win/Profilers" ^
+  -DGTPIN_ROOT="<path-to-gtpin>/Profilers" ^
   ...
 ```
 
@@ -74,7 +74,7 @@ gtpin.dll
 Example:
 
 ```powershell
-$env:OV_GTPIN_RUNTIME_DIR="W:\gtpin\Profilers\Lib\intel64"
+$env:OV_GTPIN_RUNTIME_DIR="<path-to-gtpin>\Profilers\Lib\intel64"
 ```
 
 ---
@@ -86,7 +86,7 @@ Path to the external GTPin tool DLL.
 Example:
 
 ```powershell
-$env:OV_GTPIN_TOOL_PATH="W:\gtpin\Profilers\Examples\intel64\funtime.dll"
+$env:OV_GTPIN_TOOL_PATH="<path-to-gtpin>\Profilers\Examples\intel64\<tool>.dll"
 ```
 
 ---
@@ -107,9 +107,9 @@ These variables are required for kernel instrumentation and were observed to be 
 ## Example
 
 ```powershell
-$env:OV_GTPIN_RUNTIME_DIR="W:\gtpin\Profilers\Lib\intel64"
+$env:OV_GTPIN_RUNTIME_DIR="<path-to-gtpin>\Profilers\Lib\intel64"
 
-$env:OV_GTPIN_TOOL_PATH="W:\gtpin\Profilers\Examples\intel64\funtime.dll"
+$env:OV_GTPIN_TOOL_PATH="<path-to-gtpin>\Profilers\Examples\intel64\<tool>.dll"
 
 $env:ZE_ENABLE_TRACING_LAYER="1"
 
