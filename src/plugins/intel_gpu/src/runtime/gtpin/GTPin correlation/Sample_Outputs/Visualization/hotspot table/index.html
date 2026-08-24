@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GTPin Hotspot Analysis</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0c1118;
+      --panel: #121a23;
+      --panel-2: #172230;
+      --border: #263447;
+      --text: #e9eef5;
+      --muted: #91a1b5;
+      --accent: #53b3ff;
+      --warm: #ff8e53;
+      --good: #6ad48c;
+      --read: #52c7ff;
+      --write: #7ae0b6;
+      --atomic: #ffc766;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: linear-gradient(180deg, #091019 0%, var(--bg) 30%, #0f1822 100%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 28px 20px 36px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      font-weight: 650;
+    }
+    p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat {
+      background: rgba(18, 26, 35, 0.82);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .stat-label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .stat-value {
+      font-size: 26px;
+      font-weight: 650;
+    }
+    .table-shell {
+      background: rgba(18, 26, 35, 0.82);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 18px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(38, 52, 71, 0.85);
+      vertical-align: top;
+      text-align: left;
+      font-size: 14px;
+    }
+    th {
+      color: var(--muted);
+      background: rgba(23, 34, 48, 0.85);
+      font-weight: 600;
+    }
+    tr:hover td {
+      background: rgba(83, 179, 255, 0.04);
+    }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .metric-cell {
+      min-width: 220px;
+    }
+    .mini-bar {
+      margin-top: 6px;
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+    }
+    .mini-bar > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+    }
+    .chart-card {
+      background: rgba(18, 26, 35, 0.82);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .chart-card h2 {
+      margin: 0 0 8px;
+      font-size: 19px;
+      font-weight: 620;
+    }
+    .chart-shell {
+      width: 100%;
+      overflow-x: auto;
+    }
+    .chart-shell svg {
+      width: 100%;
+      min-width: 920px;
+      height: auto;
+      display: block;
+    }
+    .chart-frame {
+      fill: rgba(255,255,255,0.02);
+      stroke: rgba(255,255,255,0.08);
+    }
+    .grid-line {
+      stroke: rgba(255,255,255,0.08);
+      stroke-width: 1;
+    }
+    .series-line {
+      fill: none;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .series-line.total {
+      stroke: #ff9a63;
+    }
+    .series-line.avg {
+      stroke: #61c2ff;
+    }
+    .mean-line {
+      stroke-width: 1.5;
+      stroke-dasharray: 5 5;
+      opacity: 0.9;
+    }
+    .mean-line.total {
+      stroke: rgba(255, 154, 99, 0.7);
+    }
+    .mean-line.avg {
+      stroke: rgba(97, 194, 255, 0.7);
+    }
+    .chart-title {
+      fill: var(--text);
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .axis-label {
+      fill: var(--muted);
+      font-size: 12px;
+    }
+    svg text {
+      fill: var(--muted);
+      font-size: 11px;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+    .chart-legend {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+    .chart-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .legend-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+    .legend-swatch.total { background: #ff9a63; }
+    .legend-swatch.avg { background: #61c2ff; }
+    .legend-swatch.read { background: var(--read); }
+    .legend-swatch.write { background: var(--write); }
+    .legend-swatch.atomic { background: var(--atomic); }
+    .chart-empty {
+      color: var(--muted);
+      padding: 12px 0 4px;
+    }
+    .composition-card {
+      display: grid;
+      gap: 12px;
+    }
+    .composition-head {
+      color: var(--text);
+      font-size: 16px;
+      font-weight: 620;
+    }
+    .composition-sub {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .composition-grid {
+      display: grid;
+      gap: 10px;
+    }
+    .comp-row {
+      display: grid;
+      grid-template-columns: minmax(120px, 180px) minmax(220px, 1fr) 150px 150px;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 12px;
+      border: 1px solid rgba(38, 52, 71, 0.85);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+    }
+    .comp-label {
+      color: var(--text);
+      font-weight: 600;
+      word-break: break-word;
+    }
+    .comp-bar {
+      display: flex;
+      width: 100%;
+      height: 12px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.06);
+    }
+    .seg {
+      display: block;
+      height: 100%;
+    }
+    .seg.read { background: var(--read); }
+    .seg.write { background: var(--write); }
+    .seg.atomic { background: var(--atomic); }
+    .comp-meta {
+      color: var(--muted);
+      font-size: 13px;
+      text-align: right;
+    }
+    @media (max-width: 860px) {
+      .comp-row {
+        grid-template-columns: 1fr;
+      }
+      .comp-meta {
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>GTPin Hotspot Analysis</h1>
+    <p>Hotspot-first execution-unit index. The table emphasizes steady inference runs, while the summary card below adapts to the active tool semantics.</p>
+    <div class="summary-grid">
+      <div class="stat"><span class="stat-label">Execution Units</span><span class="stat-value">12</span></div>
+      <div class="stat"><span class="stat-label">Hotspot Rows</span><span class="stat-value">5,522</span></div>
+      <div class="stat"><span class="stat-label">Distinct Kernels</span><span class="stat-value">380</span></div>
+      <div class="stat"><span class="stat-label">Total Total Execution Cycles</span><span class="stat-value">135,167,152,956</span></div>
+    </div>
+    <div class="table-shell">
+      <table>
+        <thead>
+          <tr>
+            <th>Execution Unit</th>
+            <th>Iteration</th>
+            <th>Logical Index</th>
+            <th>Hotspot Rows</th>
+            <th>Distinct Kernels</th>
+            <th>Distinct Ops</th>
+            <th>Total Total Execution Cycles</th>
+            <th>Average Total Execution Cycles</th>
+            <th>Mapped Primitives</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><a href="tinyllama_finale_n1_i0_hotspots.html">n1_i0</a></td><td>0</td><td>0</td><td>502</td><td>40</td><td>501</td><td class="metric-cell"><span>19,997,362,126</span><div class="mini-bar"><span style="width:100.0%; background:hsl(30 82% 46%)"></span></div></td><td>132,630.49</td><td>501 / 1071</td></tr><tr><td><a href="tinyllama_finale_n1_i1_hotspots.html">n1_i1</a></td><td>1</td><td>1</td><td>502</td><td>34</td><td>501</td><td class="metric-cell"><span>12,106,326,515</span><div class="mini-bar"><span style="width:60.5%; background:hsl(97 82% 46%)"></span></div></td><td>83,271.95</td><td>501 / 1071</td></tr><tr><td><a href="tinyllama_finale_n1_i2_hotspots.html">n1_i2</a></td><td>2</td><td>2</td><td>502</td><td>34</td><td>501</td><td class="metric-cell"><span>12,074,119,290</span><div class="mini-bar"><span style="width:60.4%; background:hsl(97 82% 46%)"></span></div></td><td>83,050.42</td><td>501 / 1071</td></tr><tr><td><a href="tinyllama_finale_n1_i3_hotspots.html">n1_i3</a></td><td>3</td><td>3</td><td>502</td><td>34</td><td>501</td><td class="metric-cell"><span>11,321,405,161</span><div class="mini-bar"><span style="width:56.6%; background:hsl(103 82% 46%)"></span></div></td><td>77,872.96</td><td>501 / 1071</td></tr><tr><td><a href="tinyllama_finale_n1_i4_hotspots.html">n1_i4</a></td><td>4</td><td>4</td><td>502</td><td>34</td><td>501</td><td class="metric-cell"><span>10,934,066,310</span><div class="mini-bar"><span style="width:54.7%; background:hsl(107 82% 46%)"></span></div></td><td>75,208.70</td><td>501 / 1071</td></tr><tr><td><a href="tinyllama_finale_n1_i5_hotspots.html">n1_i5</a></td><td>5</td><td>5</td><td>502</td><td>34</td><td>501</td><td class="metric-cell"><span>10,784,669,286</span><div class="mini-bar"><span style="width:53.9%; background:hsl(108 82% 46%)"></span></div></td><td>74,181.09</td><td>501 / 1071</td></tr><tr><td><a href="tinyllama_finale_n1_i6_hotspots.html">n1_i6</a></td><td>6</td><td>6</td><td>502</td><td>34</td><td>501</td><td class="metric-cell"><span>11,193,493,646</span><div class="mini-bar"><span style="width:56.0%; background:hsl(104 82% 46%)"></span></div></td><td>76,993.14</td><td>501 / 1071</td></tr><tr><td><a href="tinyllama_finale_n1_i7_hotspots.html">n1_i7</a></td><td>7</td><td>7</td><td>502</td><td>34</td><td>501</td><td class="metric-cell"><span>11,953,923,124</span><div class="mini-bar"><span style="width:59.8%; background:hsl(98 82% 46%)"></span></div></td><td>82,223.67</td><td>501 / 1071</td></tr><tr><td><a href="tinyllama_finale_n1_i8_hotspots.html">n1_i8</a></td><td>8</td><td>8</td><td>502</td><td>34</td><td>501</td><td class="metric-cell"><span>12,078,286,587</span><div class="mini-bar"><span style="width:60.4%; background:hsl(97 82% 46%)"></span></div></td><td>83,079.08</td><td>501 / 1071</td></tr><tr><td><a href="tinyllama_finale_n1_i9_hotspots.html">n1_i9</a></td><td>9</td><td>9</td><td>502</td><td>34</td><td>501</td><td class="metric-cell"><span>11,370,612,551</span><div class="mini-bar"><span style="width:56.9%; background:hsl(103 82% 46%)"></span></div></td><td>78,211.43</td><td>501 / 1071</td></tr><tr><td><a href="tinyllama_finale_n1_i10_hotspots.html">n1_i10</a></td><td>10</td><td>10</td><td>502</td><td>34</td><td>501</td><td class="metric-cell"><span>11,352,888,360</span><div class="mini-bar"><span style="width:56.8%; background:hsl(103 82% 46%)"></span></div></td><td>78,089.52</td><td>501 / 1071</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="chart-card">
+      <h2>Run Summary</h2>
+      <p>Total and average total execution cycles across all steady inference runs.</p>
+      
+    <div class="chart-shell">
+      <div class="chart-legend">
+        <span><i class="legend-swatch total"></i>Total Total Execution Cycles</span>
+        <span><i class="legend-swatch avg"></i>Average Total Execution Cycles</span>
+      </div>
+      <svg viewBox="0 0 1080 320" role="img" aria-label="Deviation chart across all steady inference runs">
+        <rect x="88" y="26" width="958" height="240" class="chart-frame"></rect>
+        <line x1="88" y1="266.0" x2="1046" y2="266.0" class="grid-line" /><text x="76" y="270.0" text-anchor="end">0</text><line x1="88" y1="206.0" x2="1046" y2="206.0" class="grid-line" /><text x="76" y="210.0" text-anchor="end">4,999,340,531.50</text><line x1="88" y1="146.0" x2="1046" y2="146.0" class="grid-line" /><text x="76" y="150.0" text-anchor="end">9,998,681,063</text><line x1="88" y1="86.0" x2="1046" y2="86.0" class="grid-line" /><text x="76" y="90.0" text-anchor="end">14,998,021,594.50</text><line x1="88" y1="26.0" x2="1046" y2="26.0" class="grid-line" /><text x="76" y="30.0" text-anchor="end">19,997,362,126</text>
+        <line x1="88" y1="118.5" x2="1046" y2="118.5" class="mean-line total" />
+        <line x1="88" y1="113.9" x2="1046" y2="113.9" class="mean-line avg" />
+        <polyline points="88.0,26.0 183.8,120.7 279.6,121.1 375.4,130.1 471.2,134.8 567.0,136.6 662.8,131.7 758.6,122.5 854.4,121.0 950.2,129.5 1046.0,129.7" class="series-line total" />
+        <polyline points="88.0,26.0 183.8,115.3 279.6,115.7 375.4,125.1 471.2,129.9 567.0,131.8 662.8,126.7 758.6,117.2 854.4,115.7 950.2,124.5 1046.0,124.7" class="series-line avg" />
+        <circle cx="88.0" cy="26.0" r="4.5" fill="#ff9a63" /><circle cx="88.0" cy="26.0" r="4.5" fill="#61c2ff" /><circle cx="183.8" cy="120.7" r="4.5" fill="#ff9a63" /><circle cx="183.8" cy="115.3" r="4.5" fill="#61c2ff" /><circle cx="279.6" cy="121.1" r="4.5" fill="#ff9a63" /><circle cx="279.6" cy="115.7" r="4.5" fill="#61c2ff" /><circle cx="375.4" cy="130.1" r="4.5" fill="#ff9a63" /><circle cx="375.4" cy="125.1" r="4.5" fill="#61c2ff" /><circle cx="471.2" cy="134.8" r="4.5" fill="#ff9a63" /><circle cx="471.2" cy="129.9" r="4.5" fill="#61c2ff" /><circle cx="567.0" cy="136.6" r="4.5" fill="#ff9a63" /><circle cx="567.0" cy="131.8" r="4.5" fill="#61c2ff" /><circle cx="662.8" cy="131.7" r="4.5" fill="#ff9a63" /><circle cx="662.8" cy="126.7" r="4.5" fill="#61c2ff" /><circle cx="758.6" cy="122.5" r="4.5" fill="#ff9a63" /><circle cx="758.6" cy="117.2" r="4.5" fill="#61c2ff" /><circle cx="854.4" cy="121.0" r="4.5" fill="#ff9a63" /><circle cx="854.4" cy="115.7" r="4.5" fill="#61c2ff" /><circle cx="950.2" cy="129.5" r="4.5" fill="#ff9a63" /><circle cx="950.2" cy="124.5" r="4.5" fill="#61c2ff" /><circle cx="1046.0" cy="129.7" r="4.5" fill="#ff9a63" /><circle cx="1046.0" cy="124.7" r="4.5" fill="#61c2ff" />
+        <text x="88.0" y="302" text-anchor="middle">n1_i0</text><text x="183.8" y="302" text-anchor="middle">n1_i1</text><text x="279.6" y="302" text-anchor="middle">n1_i2</text><text x="375.4" y="302" text-anchor="middle">n1_i3</text><text x="471.2" y="302" text-anchor="middle">n1_i4</text><text x="567.0" y="302" text-anchor="middle">n1_i5</text><text x="662.8" y="302" text-anchor="middle">n1_i6</text><text x="758.6" y="302" text-anchor="middle">n1_i7</text><text x="854.4" y="302" text-anchor="middle">n1_i8</text><text x="950.2" y="302" text-anchor="middle">n1_i9</text><text x="1046.0" y="302" text-anchor="middle">n1_i10</text>
+        <text x="88" y="18" class="chart-title">Deviation Across Steady Inference Runs</text>
+        <text x="88" y="314" class="axis-label">Execution unit</text>
+        <text transform="translate(18 146.0) rotate(-90)" class="axis-label">Relative metric scale</text>
+      </svg>
+    </div>
+    
+    </div>
+  </div>
+</body>
+</html>

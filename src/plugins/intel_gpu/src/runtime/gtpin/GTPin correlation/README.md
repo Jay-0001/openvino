@@ -1,202 +1,234 @@
-# GTPin Offline Correlation
+# GTPin Correlation Pipeline
 
-This folder contains a standalone offline analysis utility for correlating:
+This directory contains the current offline correlation pipeline used to join OpenVINO GPU dispatch dumps with GTPin outputs, prepare hotspot-first graph artifacts, and generate static HTML analysis views.
 
-- GTPin profiling output
-- `build_implementations.info`
-- dumped OpenCL source buckets
+The active pipeline is Python-only:
 
-The utility does not require the OpenVINO runtime environment or GTPin SDK libraries at execution time. It only consumes already-generated dump files.
+1. `multi_inference_robustness_analysis.py`
+2. `graph_join_preparation.py`
+3. `hotspot_table_visualization.py`
 
----
-
-## Build
-
-From this directory:
-
-```powershell
-cmake -S . -B build
-cmake --build build --config Release
-```
-
-This produces:
-
-```text
-build\Release\offline_correlation.exe
-```
-
-For single-config generators, the executable may instead be:
-
-```text
-build\offline_correlation.exe
-```
 
 ---
 
-## Inputs
+## Pipeline Overview
 
-Required inputs:
+### Stage 1: Dispatch + GTPin Join
 
-- `--gtpin-profile <file>`
-- at least one `--build-info <file>` or a directory via `--build-info-root <dir>`
-- at least one `--source-bucket <file>` or a directory via `--source-root <dir>`
-- `--output-dir <dir>`
+Use `multi_inference_robustness_analysis.py` as the first join.
 
----
+It consumes:
 
-## Default Output Mode
+- OpenVINO `dispatch_map.csv`
+- one GTPin text dump per run
 
-By default, the tool limits output to the current focused 7-key-kernel ResNet slice. This keeps the first generated table small, auditable, and aligned with the current validation strategy.
+It aligns rows primarily through:
 
-To emit the full dataset instead, add:
+- `DispatchId` from GTPin
+- `global_dispatch_id` from the OpenVINO dump
+
+It then emits both:
+
+- a detailed correlation table
+- a streamlined downstream join used by graph preparation
+
+Supported GTPin input kinds:
+
+- `exec_profile`
+- `memory_axis`
+- `raw_dispatch_dump`
+- `auto` detection
+
+Supported tool labels:
+
+- `performance`
+- `memory`
+- `raw_dispatch`
+- `auto`
+
+Example:
 
 ```powershell
---all-kernels
-```
-
-To emit a custom subset, repeat:
-
-```powershell
---kernel <kernel_entry>
-```
-
----
-
-## Example Run
-
-```powershell
-.\build\Release\offline_correlation.exe `
-  --gtpin-profile "<path-to-gtpin-profile>\resnet_single_infer.txt" `
-  --build-info-root "<path-to-build-implementations-root>" `
-  --source-root "<path-to-source-buckets-root>" `
+python .\multi_inference_robustness_analysis.py `
+  --dispatch-csv "<path-to-dispatch-map>\dispatch_map.csv" `
+  --gtpin-dump "<path-to-gtpin-dump>\raw_exec_kernel_correlation.txt" `
+  --model-label "tinyllama_model" `
   --output-dir "<path-to-output-dir>"
 ```
 
-Generated files:
-
-- `kernel_occurrences.csv`
-- `kernel_identity_summary.csv`
-- `kernel_occurrences.md`
-- `kernel_identity_summary.md`
-
-The markdown outputs are intentionally compact summaries rather than wide tables. They keep only the highest-information correlation fields and omit bulky items such as source bucket paths.
-
-The CSV outputs now also expose ambiguity fields for higher-layer correlation:
-
-- `mapping_kind`
-  - `unique_primitive`
-  - `shared_primitives`
-  - `unmatched`
-- `primitive_fanout`
-- `mapped_primitive_ids`
-
----
-
-## Dispatch Alignment And Lineage
-
-The runtime-side dispatch dump now supports a unified `dispatch_map.csv` layout with:
-
-- `global_dispatch_id`
-- `input_arg_addresses`
-- `output_arg_addresses`
-- `output_memory_addresses`
-
-This format is designed for direct dispatch-to-dispatch matching against GTPin `DispatchId` and for address-based producer-consumer analysis.
-
-Use the dedicated analyzer:
-
-```powershell
-.\dispatch_lineage_correlation_analysis.ps1 `
-  -DispatchCsv "<path-to-dispatch-map>\dispatch_map.csv" `
-  -GtpinDump "<path-to-gtpin-dump>\kernel_arg_address_dump.txt" `
-  -OutputDir "<path-to-output-dir>"
-```
-
-Generated files:
-
-- `dispatch_gtpin_join.csv`
-- `buffer_lineage_edges.csv`
-- `buffer_lineage_nearest_consumers.csv`
-- `dispatch_lineage_summary.md`
-
-The older `dispatch_correlation_analysis.ps1` script is still useful for count-based kernel occurrence checks and now accepts either legacy `dispatch_map_raw*.csv` files or the unified `dispatch_map.csv`.
-
----
-
-## Multi-Inference Robustness
-
-For repeated-inference experiments, use the dedicated analyzer below instead of the lineage script. It works directly from:
-
-- the OpenVINO `dispatch_map.csv`
-- the raw GTPin kernel-argument dispatch dump such as `kernel_arg_address_dump.txt`
-
-It first aligns dispatches through `DispatchId <-> global_dispatch_id`, then evaluates whether repeated inference behavior is stable across OpenVINO iterations.
-
-```powershell
-.\multi_inference_robustness_analysis.ps1 `
-  -DispatchCsv "<path-to-dispatch-map>\dispatch_map.csv" `
-  -GtpinDump "<path-to-gtpin-dump>\kernel_arg_address_dump.txt" `
-  -ModelLabel "mobilevnetv3_model" `
-  -OutputDir "<path-to-output-dir>"
-```
-
-Generated files:
+Important outputs:
 
 - `dispatch_gtpin_multi_inference_join.csv`
+- `dispatch_gtpin_kernel_metrics_join.csv`
 - `dispatches_missing_in_gtpin.csv`
-- `iteration_summary.csv`
-- `kernel_iteration_breakdown.csv`
+- `execution_unit_summary.csv`
+- `network_summary.csv`
+- `kernel_execution_unit_breakdown.csv`
 - `kernel_multi_inference_summary.csv`
 - `multi_inference_robustness_report.md`
 
-This script intentionally does not build producer-consumer graphs. Its current job is narrower:
+### Current Join Contract
 
-- verify that direct GTPin/OpenVINO dispatch alignment is intact
-- verify that OpenVINO dispatch footprints repeat cleanly across iterations
-- surface kernels that break repeated-inference assumptions under multi-inference runs
+The streamlined downstream artifact is:
+
+- `dispatch_gtpin_kernel_metrics_join.csv`
+
+This file is intentionally tool-agnostic at the correlation layer. The common contract includes:
+
+- dispatch and OpenVINO alignment fields
+- `tool_kind`
+- `primary_metric_name`
+- `primary_metric_total`
+- `primary_metric_avg`
+- `primary_metric_unit`
+- `gtpin_metric_fields_json`
+
+The JSON payload preserves tool-specific metric fields so later stages can recover extra metrics without requiring a wide fixed schema for every tool.
+
+Today the primary metric policy is:
+
+- performance: `gtpin_total_execution_cycles`
+- memory: `gtpin_estimated_total_bytes`
+
+The first join may also carry explicit tool-specific columns when they are useful downstream, but the generic primary-metric contract is the stable interface.
 
 ---
 
-## Graph Preparation And Visualization
+## Stage 2: Graph-Join Preparation
 
-The graph-prep step materializes the current correlation hierarchy:
+Use `graph_join_preparation.py` on the streamlined join plus the OpenVINO top-down dump.
 
-- `component_group -> op_type -> layer -> primitive -> kernel`
+Inputs:
 
-Use:
+- `dispatch_gtpin_kernel_metrics_join.csv`
+- `ov_topdown_primitive_rows*.csv`
+
+Example:
 
 ```powershell
 python .\graph_join_preparation.py `
-  --dispatch-join "<path-to-dispatch-join>\dispatch_gtpin_kernel_metrics_join.csv" `
+  --dispatch-join "<path-to-join>\dispatch_gtpin_kernel_metrics_join.csv" `
   --topdown "<path-to-topdown>\ov_topdown_primitive_rows.csv" `
   --output-dir "<path-to-output-dir>" `
-  --bundle-name "tinyllama_graph_prep"
+  --bundle-name "tinyllama_graph_join"
 ```
 
-For the current primary visualization, generate Cytoscape.js DAG pages from that bundle:
+This stage builds a hotspot-first hierarchy rather than reconstructing the full execution graph. The main structure is:
 
-```powershell
-python .\graph_visualization_cytoscape.py `
-  --graph-prep-root "<path-to-graph-prep-root>" `
-  --output-dir "<path-to-output-dir>" `
-  --mode filtered `
-  --layout dagre
-```
+- component path
+- resolved op type
+- origin op
+- primitive
+- kernel
 
-Notes:
+Primary goals:
 
-- the Cytoscape DAG view keeps hierarchy edges as the main layered structure
-- primitive dependency edges are included as an optional overlay, not as layout-driving edges
-- older HTML-only experiments were moved under `static_html\`
+- preserve per-inference hotspot rows
+- attach higher-level OpenVINO hierarchy
+- generate lightweight graph rows for later drilldown
+- keep the output bundle compact and visualization-friendly
+
+Main bundle outputs:
+
+- `<bundle-name>_execution_units.csv`
+- `<bundle-name>_hotspot_table.csv`
+- `<bundle-name>_hierarchy_rows.csv`
+- `<bundle-name>_graph_nodes.csv`
+- `<bundle-name>_graph_edges.csv`
+- `<bundle-name>_summary.json`
+- `<bundle-name>_report.md`
+
+This stage also writes one sub-bundle per execution unit with matching hotspot, hierarchy, graph, and summary files.
+
+### Metric Handling In Graph Prep
+
+Graph prep is still bundle-level single-tool per invocation.
+
+That means:
+
+- one generated bundle should represent one `tool_kind`
+- multiple inferences inside that bundle are fine
+- mixing performance and memory rows inside the same bundle is not supported
+
+The script uses the generic fields:
+
+- `primary_metric_name`
+- `primary_metric_total`
+- `primary_metric_avg`
+- `primary_metric_unit`
+
+It can also recover tool-specific fields from `gtpin_metric_fields_json` when needed for hotspot tables and detail views.
 
 ---
 
-## Notes
+## Stage 3: Static Hotspot Visualization
 
-- `--build-info-dir` is accepted as an alias of `--build-info-root`
-- `--source-dir` is accepted as an alias of `--source-root`
-- the parser ignores `igc_check`
-- duplicate kernel names are preserved in occurrence-level output and consolidated in identity-level output
-- shared-kernel ambiguity is made explicit through `mapping_kind`, `primitive_fanout`, and `mapped_primitive_ids`
-- markdown tables are emitted automatically alongside the CSV files into the same `--output-dir`
-- markdown entries are separated with blank lines for readability and are optimized for narrow preview panes
+Use `hotspot_table_visualization.py` on the graph-prep bundle.
+
+Example:
+
+```powershell
+python .\hotspot_table_visualization.py `
+  --graph-prep-root "<path-to-graph-prep-root>" `
+  --output-dir "<path-to-html-output>"
+```
+
+This visualization is table-first and hotspot-first. It does not try to render the full runtime DAG as the primary user experience.
+
+Current behavior:
+
+- ranks rows by `primary_metric_total`
+- uses `primary_metric_avg` or a tool-specific secondary metric where appropriate
+- derives titles, labels, and units from `primary_metric_name` and `primary_metric_unit`
+- preserves structural grouping views
+- enforces exactly one `tool_kind` per bundle
+
+Current grouped views:
+
+- hierarchy
+- primitive type
+- kernel family
+
+Current tool-specific behavior:
+
+- performance bundles use cycle-oriented summaries based on the generic primary metric contract
+- memory bundles use memory-oriented detail fields and composition-style views rather than pretending that run-to-run byte totals are the most informative chart
+
+Generated outputs include:
+
+- `index.html`
+- one HTML page per execution unit
+
+---
+
+## Recommended End-To-End Flow
+
+1. Generate OpenVINO `dispatch_map.csv` and top-down primitive rows.
+2. Run GTPin for exactly one tool per analysis invocation.
+3. Run `multi_inference_robustness_analysis.py` to produce the streamlined join.
+4. Run `graph_join_preparation.py` to build the hotspot bundle.
+5. Run `hotspot_table_visualization.py` to generate the HTML views.
+
+This is the maintained path for repeated-inference hotspot analysis.
+
+---
+
+## Practical Notes
+
+- `multi_inference_robustness_analysis.py` is the source of truth for the first join. The older PowerShell wrapper is no longer part of the maintained flow.
+- The pipeline is designed to be metric-aware without becoming tool-fragmented too early. The first join stays generic, while later stages can still expose tool-specific details.
+- The graph-prep and visualization stages assume the join has already been validated for dispatch alignment.
+- The visualization bundle must contain exactly one `tool_kind`.
+- Visualization logic is intentionally hotspot-centric and hierarchy-centric rather than topology-complete.
+
+---
+
+## Relevant Files In This Folder
+
+- `multi_inference_robustness_analysis.py`
+- `graph_join_preparation.py`
+- `hotspot_table_visualization.py`
+- `README.md`
+
+These are the files that define the maintained correlation pipeline in this directory.
+

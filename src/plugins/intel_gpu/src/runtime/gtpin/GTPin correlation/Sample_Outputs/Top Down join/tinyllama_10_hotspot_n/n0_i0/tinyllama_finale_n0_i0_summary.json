@@ -1,0 +1,17 @@
+{
+  "execution_unit_key": "n0_i0",
+  "logical_execution_index": "",
+  "net_id": "0",
+  "iteration": "0",
+  "is_internal_network_candidate": "true",
+  "dispatch_rows_total": 155,
+  "matched_dispatch_rows": 155,
+  "kernel_aligned_rows": 155,
+  "topdown_primitives_total": 0,
+  "topdown_primitives_mapped": 0,
+  "topdown_mode": "missing_topdown",
+  "hotspot_rows": 0,
+  "hierarchy_rows": 0,
+  "graph_nodes": 0,
+  "graph_edges": 0
+}

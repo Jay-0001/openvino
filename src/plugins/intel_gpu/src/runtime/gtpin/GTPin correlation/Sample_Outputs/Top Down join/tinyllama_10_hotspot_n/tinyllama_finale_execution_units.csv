@@ -1,0 +1,13 @@
+execution_unit_key,logical_execution_index,net_id,iteration,is_internal_network_candidate,dispatch_rows_total,matched_dispatch_rows,kernel_aligned_rows,topdown_primitives_total,topdown_primitives_mapped,topdown_mode
+n0_i0,,0,0,true,155,155,155,0,0,missing_topdown
+n1_i0,0,1,0,false,502,502,502,1071,501,inference_scoped
+n1_i1,1,1,1,false,502,502,502,1071,501,inference_scoped
+n1_i10,10,1,10,false,502,502,502,1071,501,inference_scoped
+n1_i2,2,1,2,false,502,502,502,1071,501,inference_scoped
+n1_i3,3,1,3,false,502,502,502,1071,501,inference_scoped
+n1_i4,4,1,4,false,502,502,502,1071,501,inference_scoped
+n1_i5,5,1,5,false,502,502,502,1071,501,inference_scoped
+n1_i6,6,1,6,false,502,502,502,1071,501,inference_scoped
+n1_i7,7,1,7,false,502,502,502,1071,501,inference_scoped
+n1_i8,8,1,8,false,502,502,502,1071,501,inference_scoped
+n1_i9,9,1,9,false,502,502,502,1071,501,inference_scoped

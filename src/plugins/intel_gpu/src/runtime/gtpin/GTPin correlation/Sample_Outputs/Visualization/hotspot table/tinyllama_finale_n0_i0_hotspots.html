@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hotspot Analysis - n0_i0</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1118;
+      --bg-2: #0f1822;
+      --panel: rgba(18, 26, 35, 0.90);
+      --panel-strong: rgba(23, 34, 48, 0.96);
+      --border: #253446;
+      --text: #e8edf5;
+      --muted: #8ea0b7;
+      --accent: #59b7ff;
+      --accent-2: #6de1b4;
+      --warm: #ff8c52;
+      --warn: #ffd166;
+      --ok: #67d38b;
+      --shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(89, 183, 255, 0.12), transparent 30%),
+        radial-gradient(circle at top right, rgba(255, 140, 82, 0.12), transparent 28%),
+        linear-gradient(180deg, #081018 0%, var(--bg) 45%, var(--bg-2) 100%);
+    }
+    .wrap {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 24px 18px 36px;
+    }
+    .topbar {
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+    .heading h1 {
+      margin: 0 0 6px;
+      font-size: 32px;
+      font-weight: 650;
+    }
+    .heading p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 900px;
+      line-height: 1.45;
+    }
+    .backlink {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .stat {
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      min-height: 96px;
+    }
+    .stat-label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
+    }
+    .stat-value {
+      font-size: 26px;
+      font-weight: 670;
+    }
+    .stat-sub {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.9fr) minmax(340px, 0.95fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .left-column, .right-column {
+      display: grid;
+      gap: 18px;
+    }
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid rgba(37, 52, 70, 0.92);
+      background: linear-gradient(180deg, rgba(23, 34, 48, 0.95), rgba(18, 26, 35, 0.98));
+    }
+    .panel-head h2 {
+      margin: 0 0 6px;
+      font-size: 17px;
+      font-weight: 650;
+    }
+    .panel-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(37, 52, 70, 0.92);
+      background: rgba(11, 17, 24, 0.38);
+    }
+    .view-tabs, .detail-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .view-tab, .detail-tab {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--muted);
+      padding: 8px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .view-tab.active {
+      color: var(--text);
+      background: rgba(89, 183, 255, 0.15);
+      border-color: rgba(89, 183, 255, 0.45);
+    }
+    .detail-tab.active {
+      color: var(--text);
+      background: rgba(109, 225, 180, 0.14);
+      border-color: rgba(109, 225, 180, 0.42);
+    }
+    .control-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .control-label {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    select {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 980px;
+    }
+    th, td {
+      border-bottom: 1px solid rgba(37, 52, 70, 0.82);
+      padding: 11px 12px;
+      vertical-align: middle;
+      text-align: left;
+      font-size: 13px;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: rgba(23, 34, 48, 0.98);
+      color: var(--muted);
+      font-weight: 600;
+    }
+    tbody tr {
+      transition: background 140ms ease;
+    }
+    tbody tr:hover td {
+      background: rgba(89, 183, 255, 0.035);
+    }
+    tbody tr.selected td {
+      background: rgba(89, 183, 255, 0.08);
+    }
+    .row-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .expand-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted);
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+    .expand-btn.disabled {
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .label-stack {
+      min-width: 0;
+    }
+    .label-main {
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 520px;
+    }
+    .label-sub {
+      margin-top: 3px;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 560px;
+    }
+    .heat-cell {
+      min-width: 220px;
+    }
+    .heat-metric {
+      display: grid;
+      gap: 6px;
+      min-width: 220px;
+    }
+    .heat-bar {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+    }
+    .heat-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #4bb7ff 0%, #7adfba 42%, #ffd166 75%, #ff8c52 100%);
+    }
+    .metric-note {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .intensity-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      flex: 0 0 auto;
+      box-shadow: 0 0 18px rgba(255, 140, 82, 0.22);
+    }
+    .detail-tab-shell {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(37, 52, 70, 0.92);
+      background: rgba(11, 17, 24, 0.26);
+    }
+    .detail-body {
+      padding: 16px;
+      display: grid;
+      gap: 16px;
+    }
+    .placeholder {
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .crumbs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .crumb {
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(89, 183, 255, 0.10);
+      color: var(--text);
+      font-size: 12px;
+      border: 1px solid rgba(89, 183, 255, 0.18);
+    }
+    .detail-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 650;
+      line-height: 1.35;
+    }
+    .detail-sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .detail-stat {
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(37, 52, 70, 0.92);
+      background: rgba(12, 19, 28, 0.72);
+    }
+    .detail-stat-label {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    .detail-stat-value {
+      font-size: 20px;
+      font-weight: 650;
+    }
+    .quality-list {
+      display: grid;
+      gap: 8px;
+    }
+    .quality-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(12, 19, 28, 0.72);
+      border: 1px solid rgba(37, 52, 70, 0.92);
+      font-size: 13px;
+    }
+    .quality-item strong {
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .quality-ok {
+      color: var(--ok);
+      font-weight: 600;
+    }
+    .quality-warn {
+      color: var(--warn);
+      font-weight: 600;
+    }
+    .peer-bar-shell {
+      display: grid;
+      gap: 8px;
+    }
+    .peer-bar {
+      height: 14px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .peer-bar > span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, #57b7ff 0%, #7de1b3 48%, #ff9358 100%);
+      border-radius: inherit;
+    }
+    .mono {
+      font-family: Consolas, "Courier New", monospace;
+      word-break: break-word;
+    }
+    .small-list {
+      display: grid;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .small-list strong {
+      color: var(--text);
+    }
+    .kernel-list {
+      display: grid;
+      gap: 8px;
+    }
+    .kernel-chip {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(12, 19, 28, 0.72);
+      border: 1px solid rgba(37, 52, 70, 0.92);
+      font-size: 13px;
+    }
+    .kernel-chip .mono {
+      color: var(--text);
+      max-width: 78%;
+    }
+    .kernel-chip-metric {
+      color: var(--warn);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    @media (max-width: 1180px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .wrap { padding: 18px 14px 28px; }
+      .heading h1 { font-size: 26px; }
+      .detail-grid { grid-template-columns: 1fr; }
+      .control-group { width: 100%; margin-left: 0; }
+      .control-group select { flex: 1 1 auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="heading">
+        <h1>Hotspot Analysis - n0_i0</h1>
+        <p>Ranked hotspot analysis using the bundle primary metric as the main signal. Existing structural grouping views are preserved, while the secondary signal adapts to the active tool.</p>
+      </div>
+      <a class="backlink" href="index.html">Back to execution-unit index</a>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><span class="stat-label">Execution Unit</span><div class="stat-value">n0_i0</div><div class="stat-sub">net 0, iteration 0</div></div>
+      <div class="stat"><span class="stat-label">Total Total Execution Cycles</span><div class="stat-value">0</div><div class="stat-sub">0 average total execution cycles</div></div>
+      <div class="stat"><span class="stat-label">Hotspot Rows</span><div class="stat-value">0</div><div class="stat-sub">0 distinct kernels</div></div>
+      <div class="stat"><span class="stat-label">Mapped Primitives</span><div class="stat-value">0</div><div class="stat-sub">0 matched primitive rows available</div></div>
+      <div class="stat"><span class="stat-label">Dispatch Coverage</span><div class="stat-value">155</div><div class="stat-sub">155 dispatch rows in unit</div></div>
+    </div>
+
+    <div class="layout">
+      <div class="left-column">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Hotspot Views</h2>
+            <p>Switch grouping modes to inspect the same hotspot data from hierarchy, primitive type, or kernel-family angles.</p>
+          </div>
+          <div class="controls">
+            <div class="view-tabs" id="view-tabs"></div>
+            <div class="control-group">
+              <span class="control-label">Rows</span>
+              <select id="row-limit">
+                <option value="25">Top 25</option>
+                <option value="50" selected>Top 50</option>
+                <option value="100">Top 100</option>
+                <option value="250">Top 250</option>
+                <option value="1000">All</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Grouped Hotspot</th>
+                  <th id="metric-total-header">Total Metric</th>
+                  <th id="metric-secondary-header">Secondary Metric</th>
+                  <th>Dispatches</th>
+                  <th>Distinct Kernels</th>
+                  <th>Distinct Ops</th>
+                </tr>
+              </thead>
+              <tbody id="table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="right-column">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Selected Drilldown</h2>
+            <p>Selection stays concise: structural context, metric weight, correlation quality, and tool-specific detail when available.</p>
+          </div>
+          <div class="detail-tab-shell">
+            <div class="detail-tabs" id="detail-tabs"></div>
+          </div>
+          <div class="detail-body" id="detail-panel">
+            <div class="placeholder">Select a row from the hotspot table to inspect its hierarchy chain, ranking weight, and kernel metadata.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const payload = {"summary": {"execution_unit_key": "n0_i0", "logical_execution_index": "", "net_id": "0", "iteration": "0", "is_internal_network_candidate": "true", "dispatch_rows_total": 155, "matched_dispatch_rows": 155, "kernel_aligned_rows": 155, "topdown_primitives_total": 0, "topdown_primitives_mapped": 0, "topdown_mode": "missing_topdown", "hotspot_rows": 0, "total_metric": 0, "secondary_metric": 0.0, "tool_kind": "performance", "primary_metric_name": "gtpin_total_execution_cycles", "primary_metric_label": "Total Execution Cycles", "primary_metric_unit": "cycles", "secondary_metric_label": "Average Total Execution Cycles", "secondary_metric_unit": "cycles", "distinct_components": 0, "distinct_ops": 0, "distinct_kernels": 0, "total_reads": 0, "total_writes": 0, "total_atomics": 0, "total_mem_ops": 0}, "bundle": {"tool_kind": "performance", "primary_metric_name": "gtpin_total_execution_cycles", "primary_metric_label": "Total Execution Cycles", "primary_metric_unit": "cycles", "secondary_metric_key": "primary_metric_avg", "secondary_metric_label": "Average Total Execution Cycles", "secondary_metric_unit": "cycles", "chart_mode": "deviation", "tool_detail_fields": [{"key": "gtpin_invocation_count", "label": "Invocation Count", "unit": ""}, {"key": "gtpin_total_execution_cycles", "label": "Total Execution Cycles", "unit": "cycles"}, {"key": "gtpin_avg_execution_cycles_per_invocation", "label": "Avg Cycles / Invocation", "unit": "cycles"}]}, "views": [{"id": "hierarchy", "label": "Hierarchy", "description": "Component path to kernel hotspot ranking.", "group_keys": ["component_path", "resolved_op_type_name", "origin_op_name", "kernel_entry"]}, {"id": "primitive_type", "label": "Primitive Type", "description": "Primitive type to implementation to kernel hotspot ranking.", "group_keys": ["primitive_type", "implementation", "kernel_entry"]}, {"id": "kernel_family", "label": "Kernel Family", "description": "Kernel family with attached hierarchy context.", "group_keys": ["kernel_entry", "component_path", "origin_op_name"]}], "rows": []};
+    const bundle = payload.bundle || {};
+    const metricLabel = bundle.primary_metric_label || "Primary Metric";
+    const metricUnit = bundle.primary_metric_unit || "";
+    const secondaryMetricLabel = bundle.secondary_metric_label || "Secondary Metric";
+    const secondaryMetricUnit = bundle.secondary_metric_unit || "";
+    const toolKind = bundle.tool_kind || "unknown";
+    const toolDetailFields = bundle.tool_detail_fields || [];
+    const rows = payload.rows || [];
+    const views = payload.views || [];
+
+    const detailTabs = [
+      { id: "summary", label: "Summary" },
+      { id: "correlation", label: "Correlation" },
+      ...(toolDetailFields.length ? [{ id: "tool", label: `${toolKind} Details` }] : []),
+    ];
+
+    const maxRowMetric = Math.max(...rows.map(row => Number(row._primary_metric_total_num || 0)), 0);
+
+    const state = {
+      activeViewId: views[0]?.id || "hierarchy",
+      activeDetailTabId: detailTabs[0]?.id || "summary",
+      expanded: new Set(),
+      selectedKey: "",
+      selectedItem: null,
+      rowLimit: 50,
+    };
+
+    function formatNumber(value) {
+      return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(Number(value || 0));
+    }
+
+    function formatMetric(value) {
+      const base = formatNumber(value);
+      return metricUnit ? `${base} ${metricUnit}` : base;
+    }
+
+    function formatSecondaryMetric(value) {
+      const base = formatNumber(value);
+      return secondaryMetricUnit ? `${base} ${secondaryMetricUnit}` : base;
+    }
+
+    function formatPercent(value) {
+      return `${(value * 100).toFixed(1)}%`;
+    }
+
+    function escapeHtml(text) {
+      return String(text ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function intensityColor(intensity) {
+      const hue = 208 - (intensity * 160);
+      const sat = 84;
+      const light = 58 - intensity * 12;
+      return `hsl(${hue} ${sat}% ${light}%)`;
+    }
+
+    function getActiveView() {
+      return views.find(view => view.id === state.activeViewId) || views[0];
+    }
+
+    function getActiveDetailTab() {
+      return detailTabs.find(tab => tab.id === state.activeDetailTabId) || detailTabs[0];
+    }
+
+    function makeGroupKey(parentKey, field, value) {
+      return `${parentKey}|${field}=${value}`;
+    }
+
+    function getFieldNumber(row, key) {
+      const direct = row[key];
+      if (direct !== undefined && direct !== null && String(direct).trim() !== "") {
+        const parsed = Number(direct);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      const fallback = row._metric_fields?.[key];
+      const parsed = Number(fallback);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function summarizeToolMetrics(childRows) {
+      const summary = {};
+      for (const field of toolDetailFields) {
+        summary[field.key] = childRows.reduce((sum, row) => sum + getFieldNumber(row, field.key), 0);
+      }
+
+      if (summary.gtpin_total_memory_ops > 0 &&
+          !summary.gtpin_estimated_bytes_per_mem_op &&
+          summary.gtpin_estimated_total_bytes) {
+        summary.gtpin_estimated_bytes_per_mem_op =
+          summary.gtpin_estimated_total_bytes / summary.gtpin_total_memory_ops;
+      }
+
+      const reads = summary.gtpin_reads || 0;
+      const writes = summary.gtpin_writes || 0;
+      const readWriteBase = reads + writes;
+      if (readWriteBase > 0 && !summary.gtpin_write_dominance_pct) {
+        summary.gtpin_write_dominance_pct = (writes / readWriteBase) * 100;
+      }
+
+      if ((summary.gtpin_invocation_count || 0) > 0 &&
+          !summary.gtpin_avg_execution_cycles_per_invocation &&
+          summary.gtpin_total_execution_cycles) {
+        summary.gtpin_avg_execution_cycles_per_invocation =
+          summary.gtpin_total_execution_cycles / summary.gtpin_invocation_count;
+      }
+
+      return summary;
+    }
+
+    function computeSecondaryMetric(childRows, totalMetric) {
+      if (toolKind === "memory") {
+        const totalMemOps = childRows.reduce((sum, row) => sum + Number(row._gtpin_total_memory_ops_num || 0), 0);
+        if (totalMemOps > 0) {
+          return totalMetric / totalMemOps;
+        }
+
+        const explicit = childRows
+          .map(row => Number(row._gtpin_estimated_bytes_per_mem_op_num || 0))
+          .filter(value => Number.isFinite(value) && value > 0);
+
+        if (explicit.length) {
+          return explicit.reduce((sum, value) => sum + value, 0) / explicit.length;
+        }
+        return 0;
+      }
+
+      const totalInvocations = childRows.reduce((sum, row) => sum + Number(row._gtpin_invocation_count_num || 0), 0);
+      if (totalInvocations > 0) {
+        return totalMetric / totalInvocations;
+      }
+
+      const avgValues = childRows
+        .map(row => Number(row._primary_metric_avg_num || 0))
+        .filter(value => Number.isFinite(value) && value > 0);
+
+      if (!avgValues.length) {
+        return 0;
+      }
+      return avgValues.reduce((sum, value) => sum + value, 0) / avgValues.length;
+    }
+
+    function buildGroupRows(sourceRows, groupKeys, depth, parentKey, lineage) {
+      if (depth >= groupKeys.length) {
+        return [];
+      }
+
+      const field = groupKeys[depth];
+      const grouped = new Map();
+
+      for (const row of sourceRows) {
+        const value = String(row[field] || "(blank)");
+        if (!grouped.has(value)) {
+          grouped.set(value, []);
+        }
+        grouped.get(value).push(row);
+      }
+
+      const items = [];
+      for (const [value, childRows] of grouped.entries()) {
+        const totalMetric = childRows.reduce((sum, row) => sum + Number(row._primary_metric_total_num || 0), 0);
+        const secondaryMetric = computeSecondaryMetric(childRows, totalMetric);
+        const dispatchCount = childRows.reduce((sum, row) => sum + getFieldNumber(row, "dispatch_count"), 0);
+        const distinctKernels = new Set(childRows.map(row => row.kernel_entry)).size;
+        const distinctOps = new Set(childRows.map(row => row.origin_op_name)).size;
+        const key = makeGroupKey(parentKey, field, value);
+        const nextLineage = [...lineage, { field, value }];
+        const isLeaf = depth === groupKeys.length - 1;
+
+        items.push({
+          kind: isLeaf ? "leaf" : "group",
+          field,
+          value,
+          key,
+          depth,
+          lineage: nextLineage,
+          totalMetric,
+          secondaryMetric,
+          dispatchCount,
+          distinctKernels,
+          distinctOps,
+          childrenRows: childRows,
+          toolMetrics: summarizeToolMetrics(childRows),
+          leafRow: isLeaf && childRows.length === 1 ? childRows[0] : null,
+          topRow: [...childRows].sort(
+            (a, b) => Number(b._primary_metric_total_num || 0) - Number(a._primary_metric_total_num || 0)
+          )[0],
+        });
+      }
+
+      items.sort((a, b) => b.totalMetric - a.totalMetric || a.value.localeCompare(b.value));
+      return items;
+    }
+
+    function flattenRows(sourceRows, groupKeys, parentKey = "root", depth = 0, lineage = []) {
+      const groupedRows = buildGroupRows(sourceRows, groupKeys, depth, parentKey, lineage);
+      const flat = [];
+      for (const item of groupedRows) {
+        flat.push(item);
+        if (item.kind === "group" && state.expanded.has(item.key)) {
+          flat.push(...flattenRows(item.childrenRows, groupKeys, item.key, depth + 1, item.lineage));
+        }
+      }
+      return flat;
+    }
+
+    function buildHeaderText(item, viewId) {
+      if (item.kind === "leaf" && item.leafRow) {
+        const row = item.leafRow;
+        return {
+          main: row.kernel_entry || "(kernel)",
+          sub: `${row.origin_op_name || ""} | ${row.implementation || ""}`,
+        };
+      }
+
+      const topRow = item.topRow || {};
+      const subParts = [];
+      if (viewId !== "hierarchy" && topRow.component_path) {
+        subParts.push(topRow.component_path);
+      }
+      if (topRow.origin_op_name && item.field !== "origin_op_name") {
+        subParts.push(topRow.origin_op_name);
+      }
+      if (topRow.implementation && item.field !== "implementation") {
+        subParts.push(topRow.implementation);
+      }
+      if (item.field !== "kernel_entry") {
+        subParts.push(`${item.distinctKernels} kernels`);
+      }
+      return {
+        main: item.value,
+        sub: subParts.join(" | "),
+      };
+    }
+
+    function renderTabs() {
+      const tabs = document.getElementById("view-tabs");
+      tabs.innerHTML = "";
+      for (const view of views) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `view-tab${view.id === state.activeViewId ? " active" : ""}`;
+        button.textContent = view.label;
+        button.title = view.description;
+        button.addEventListener("click", () => {
+          state.activeViewId = view.id;
+          state.expanded.clear();
+          state.selectedKey = "";
+          state.selectedItem = null;
+          renderTabs();
+          renderTable();
+          renderPlaceholder(view);
+        });
+        tabs.appendChild(button);
+      }
+    }
+
+    function renderDetailTabs() {
+      const tabs = document.getElementById("detail-tabs");
+      tabs.innerHTML = "";
+      for (const tab of detailTabs) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `detail-tab${tab.id === state.activeDetailTabId ? " active" : ""}`;
+        button.textContent = tab.label;
+        button.addEventListener("click", () => {
+          state.activeDetailTabId = tab.id;
+          renderDetailTabs();
+          if (state.selectedItem) {
+            renderDetail(state.selectedItem, getActiveView());
+          } else {
+            renderPlaceholder(getActiveView());
+          }
+        });
+        tabs.appendChild(button);
+      }
+    }
+
+    function renderPlaceholder(view) {
+      const panel = document.getElementById("detail-panel");
+      panel.innerHTML = `<div class="placeholder">Select a row in the <strong>${escapeHtml(view.label)}</strong> view to inspect structural context, primary-metric intensity, and tool-specific metadata.</div>`;
+    }
+
+    function toggleExpand(key) {
+      if (state.expanded.has(key)) {
+        state.expanded.delete(key);
+      } else {
+        state.expanded.add(key);
+      }
+      renderTable();
+    }
+
+    function renderTable() {
+      const view = getActiveView();
+      const body = document.getElementById("table-body");
+      const flattened = flattenRows(rows, view.group_keys).slice(0, state.rowLimit);
+      const maxVisibleMetric = Math.max(...flattened.map(item => item.totalMetric), 0);
+      body.innerHTML = "";
+
+      for (const item of flattened) {
+        const tr = document.createElement("tr");
+        if (state.selectedKey === item.key) {
+          tr.classList.add("selected");
+        }
+
+        const intensity = maxVisibleMetric > 0 ? item.totalMetric / maxVisibleMetric : 0;
+        const header = buildHeaderText(item, view.id);
+        const hasChildren = item.kind === "group";
+        const indent = item.depth * 18;
+
+        tr.innerHTML = `
+          <td>
+            <div class="row-label" style="padding-left:${indent}px">
+              <button class="expand-btn ${hasChildren ? "" : "disabled"}" data-action="expand">${hasChildren && state.expanded.has(item.key) ? "−" : "+"}</button>
+              <span class="intensity-dot" style="background:${intensityColor(intensity)}"></span>
+              <div class="label-stack">
+                <div class="label-main">${escapeHtml(header.main)}</div>
+                <div class="label-sub">${escapeHtml(header.sub || "Direct hotspot row")}</div>
+              </div>
+            </div>
+          </td>
+          <td class="heat-cell">
+            <div class="heat-metric">
+              <span>${formatMetric(item.totalMetric)}</span>
+              <div class="heat-bar"><div class="heat-fill" style="width:${Math.max(2, intensity * 100)}%"></div></div>
+            </div>
+            <div class="metric-note">${formatPercent(intensity)} of hottest visible item in this view</div>
+          </td>
+          <td>${formatSecondaryMetric(item.secondaryMetric)}</td>
+          <td>${formatNumber(item.dispatchCount)}</td>
+          <td>${formatNumber(item.distinctKernels)}</td>
+          <td>${formatNumber(item.distinctOps)}</td>
+        `;
+
+        tr.addEventListener("click", event => {
+          const button = event.target.closest("[data-action='expand']");
+          if (button && hasChildren) {
+            event.stopPropagation();
+            toggleExpand(item.key);
+            return;
+          }
+          state.selectedKey = item.key;
+          state.selectedItem = item;
+          renderTable();
+          renderDetail(item, view);
+        });
+
+        body.appendChild(tr);
+      }
+    }
+
+    function buildCrumbs(item) {
+      const crumbs = [];
+      for (const part of item.lineage) {
+        crumbs.push(`<span class="crumb">${escapeHtml(part.value)}</span>`);
+      }
+      if (item.kind === "leaf" && item.leafRow) {
+        crumbs.push(`<span class="crumb">${escapeHtml(item.leafRow.kernel_entry || "")}</span>`);
+      }
+      return crumbs.join("");
+    }
+
+    function peerRanking(item) {
+      const sorted = [...item.childrenRows].sort(
+        (a, b) => Number(b._primary_metric_total_num || 0) - Number(a._primary_metric_total_num || 0)
+      );
+      const top = sorted[0] || null;
+      const leaf = item.leafRow;
+      if (!top || !leaf) {
+        return {
+          width: 0,
+          message: "Grouped row. Expand further to inspect a single hotspot against its siblings.",
+        };
+      }
+
+      const topMetric = Number(top._primary_metric_total_num || 0);
+      const leafMetric = Number(leaf._primary_metric_total_num || 0);
+      const width = topMetric > 0 ? (leafMetric / topMetric) * 100 : 0;
+      const rank = sorted.findIndex(row => row._row_index === leaf._row_index) + 1;
+
+      return {
+        width,
+        message: `Sibling rank ${rank} of ${sorted.length} in current branch`,
+      };
+    }
+
+    function representativeKernels(item) {
+      const grouped = new Map();
+      for (const row of item.childrenRows) {
+        const key = row.kernel_entry || "(kernel)";
+        if (!grouped.has(key)) {
+          grouped.set(key, { kernel_entry: key, totalMetric: 0 });
+        }
+        grouped.get(key).totalMetric += Number(row._primary_metric_total_num || 0);
+      }
+
+      return [...grouped.values()]
+        .sort((a, b) => b.totalMetric - a.totalMetric || a.kernel_entry.localeCompare(b.kernel_entry))
+        .slice(0, 4);
+    }
+
+    function correlationMarkup(item, row) {
+      return `
+        <div class="quality-list">
+          <div class="quality-item"><strong>Component Path</strong><span>${escapeHtml(row?.component_path || item.value)}</span></div>
+          <div class="quality-item"><strong>Resolved Op Type</strong><span>${escapeHtml(row?.resolved_op_type_name || "")}</span></div>
+          <div class="quality-item"><strong>Implementation</strong><span class="mono">${escapeHtml(row?.implementation || "")}</span></div>
+          <div class="quality-item"><strong>Kernel Alignment</strong><span class="${row?.kernel_alignment_status === "aligned" ? "quality-ok" : "quality-warn"}">${escapeHtml(row?.kernel_alignment_status || "grouped")}</span></div>
+          <div class="quality-item"><strong>Pointer Coverage</strong><span class="${row?.pointer_coverage_match === "true" ? "quality-ok" : "quality-warn"}">${escapeHtml(row?.pointer_coverage_match || "grouped")}</span></div>
+          <div class="quality-item"><strong>OV Match</strong><span class="${row?.ov_match === "matched" ? "quality-ok" : "quality-warn"}">${escapeHtml(row?.ov_match || "grouped")}</span></div>
+          <div class="quality-item"><strong>Execution Descriptor</strong><span class="mono">${escapeHtml(row?.execution_descriptor || "")}</span></div>
+        </div>
+      `;
+    }
+
+    function toolMarkup(item) {
+      if (!toolDetailFields.length) {
+        return `<div class="placeholder">No tool-specific metrics were configured for this bundle.</div>`;
+      }
+
+      const cards = toolDetailFields.map(field => {
+        const value = item.toolMetrics[field.key] || 0;
+        let display = formatNumber(value);
+        if (field.unit === "%") {
+          display = `${formatNumber(value)}%`;
+        } else if (field.unit) {
+          display = `${formatNumber(value)} ${field.unit}`;
+        }
+        return `
+          <div class="detail-stat">
+            <span class="detail-stat-label">${escapeHtml(field.label)}</span>
+            <div class="detail-stat-value">${display}</div>
+          </div>
+        `;
+      }).join("");
+
+      return `<div class="detail-grid">${cards}</div>`;
+    }
+
+    function renderDetail(item, view) {
+      const panel = document.getElementById("detail-panel");
+      const row = item.leafRow || item.topRow || null;
+      const ranking = peerRanking(item);
+
+      const visibleItems = flattenRows(rows, view.group_keys);
+      const maxVisibleMetric = Math.max(...visibleItems.map(entry => entry.totalMetric), 0);
+      const intensity = maxVisibleMetric > 0 ? item.totalMetric / maxVisibleMetric : 0;
+
+      const primitiveLine = row && row.primitive_id && row.primitive_id !== row.origin_op_name
+        ? `<div><strong>Primitive:</strong> <span class="mono">${escapeHtml(row.primitive_id)}</span></div>`
+        : "";
+      const kernelLine = row && row.kernel_entry
+        ? `<div><strong>Kernel:</strong> <span class="mono">${escapeHtml(row.kernel_entry)}</span></div>`
+        : "";
+      const dispatchLine = row && row.dispatch_ids
+        ? `<div><strong>Dispatch IDs:</strong> <span class="mono">${escapeHtml(row.dispatch_ids)}</span></div>`
+        : "";
+
+      const repKernels = item.kind === "group"
+        ? representativeKernels(item).map(kernel => `
+            <div class="kernel-chip">
+              <span class="mono">${escapeHtml(kernel.kernel_entry)}</span>
+              <span class="kernel-chip-metric">${formatMetric(kernel.totalMetric)}</span>
+            </div>
+          `).join("")
+        : "";
+
+      const panelSubtitle = item.kind === "leaf" && row
+        ? `${view.label} drilldown | exact hotspot row`
+        : `${view.label} drilldown | representative kernels for this grouped branch`;
+
+      const summaryMarkup = `
+        <div class="crumbs">${buildCrumbs(item)}</div>
+        <div>
+          <h3 class="detail-title">${escapeHtml(item.kind === "leaf" && row ? row.kernel_entry : item.value)}</h3>
+          <p class="detail-sub">${escapeHtml(panelSubtitle)}${row && item.kind === "leaf" ? ` | ${escapeHtml(row.origin_op_name || "")}` : ""}</p>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-stat">
+            <span class="detail-stat-label">Total ${escapeHtml(metricLabel)}</span>
+            <div class="detail-stat-value">${formatMetric(item.totalMetric)}</div>
+          </div>
+          <div class="detail-stat">
+            <span class="detail-stat-label">${escapeHtml(secondaryMetricLabel)}</span>
+            <div class="detail-stat-value">${formatSecondaryMetric(item.secondaryMetric)}</div>
+          </div>
+          <div class="detail-stat">
+            <span class="detail-stat-label">Dispatches</span>
+            <div class="detail-stat-value">${formatNumber(item.dispatchCount)}</div>
+          </div>
+          <div class="detail-stat">
+            <span class="detail-stat-label">Distinct Kernels</span>
+            <div class="detail-stat-value">${formatNumber(item.distinctKernels)}</div>
+          </div>
+        </div>
+        <div class="peer-bar-shell">
+          <div class="detail-sub">${escapeHtml(ranking.message)}</div>
+          <div class="peer-bar"><span style="width:${Math.max(2, ranking.width)}%"></span></div>
+          <div class="detail-sub">${formatPercent(intensity)} of hottest visible item in this view</div>
+        </div>
+        ${item.kind === "group" ? `
+          <div>
+            <p class="detail-sub">Representative kernels in this branch</p>
+            <div class="kernel-list">${repKernels}</div>
+          </div>
+        ` : ""}
+        <div class="small-list">
+          <div><strong>Origin Op:</strong> <span class="mono">${escapeHtml(row?.origin_op_name || "")}</span></div>
+          ${primitiveLine}
+          ${kernelLine}
+          ${dispatchLine}
+        </div>
+      `;
+
+      const tabId = getActiveDetailTab().id;
+      if (tabId === "correlation") {
+        panel.innerHTML = correlationMarkup(item, row);
+        return;
+      }
+      if (tabId === "tool") {
+        panel.innerHTML = toolMarkup(item);
+        return;
+      }
+      panel.innerHTML = summaryMarkup;
+    }
+
+    document.getElementById("row-limit").addEventListener("change", event => {
+      state.rowLimit = parseInt(event.target.value, 10) || 50;
+      renderTable();
+    });
+
+    document.getElementById("metric-total-header").textContent = `Total ${metricLabel}`;
+    document.getElementById("metric-secondary-header").textContent = secondaryMetricLabel;
+
+    renderTabs();
+    renderDetailTabs();
+    renderPlaceholder(getActiveView());
+    renderTable();
+  </script>
+</body>
+</html>

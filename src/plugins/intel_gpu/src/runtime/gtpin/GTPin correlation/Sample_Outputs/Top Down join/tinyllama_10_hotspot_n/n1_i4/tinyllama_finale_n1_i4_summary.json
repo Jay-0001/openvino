@@ -1,0 +1,17 @@
+{
+  "execution_unit_key": "n1_i4",
+  "logical_execution_index": 4,
+  "net_id": "1",
+  "iteration": "4",
+  "is_internal_network_candidate": "false",
+  "dispatch_rows_total": 502,
+  "matched_dispatch_rows": 502,
+  "kernel_aligned_rows": 502,
+  "topdown_primitives_total": 1071,
+  "topdown_primitives_mapped": 501,
+  "topdown_mode": "inference_scoped",
+  "hotspot_rows": 502,
+  "hierarchy_rows": 501,
+  "graph_nodes": 1536,
+  "graph_edges": 1529
+}
